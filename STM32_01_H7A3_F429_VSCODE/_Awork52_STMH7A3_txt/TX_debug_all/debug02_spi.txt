@@ -1,0 +1,511 @@
+ 
+。spi初始化
+。spi发送数据__
+
+
+===========================spi初始化================================ 
+
+
+ flow： (spi初始化)
+
+             BoardInit -- MX_SPI1_Init
+             -- HAL_SPI_Init --  HAL_SPI_MspInit  --  HAL_DMA_Init   --  __HAL_LINKDMA --  ?   ( IRQ)
+             -- HAL_SPI_Init -- WRITE_REG(CR1)  --  WRITE_REG(CR2) 
+ 
+
+--------------------------------------------------------------------
+
+main
+
+     BoardInit();
+           MX_SPI1_Init();
+ 
+
+------
+ 
+
+ MX_SPI1_Init( )
+ 
+      hspi1.Instance                             = SPI1;
+      hspi1.Init.Mode                            = SPI_MODE_MASTER;                   //CR1.8,2=11， 从机内部片选（待理解），主模式
+      hspi1.Init.Direction                    = SPI_DIRECTION_2LINES;                //CR1.15,10=00， 双工收发，两线单一方向
+      hspi1.Init.DataSize                    = SPI_DATASIZE_8BIT;                        //CR1.11=0,   8bit data frame
+      hspi1.Init.CLKPolarity                = SPI_POLARITY_LOW;                     //CR1.1=0,  空闲时clk为低电平  
+      hspi1.Init.CLKPhase                    = SPI_PHASE_1EDGE;                        //CR1.0=0,   第1个时钟沿捕捉第一个数据
+      hspi1.Init.NSS                             = SPI_NSS_SOFT;                                           //CR1.9=1, 使能软件从机管理   
+      hspi1.Init.BaudRatePrescaler   = SPI_BAUDRATEPRESCALER_32;                 //CR1.5-3=4, 32分频   
+      hspi1.Init.FirstBit                        = SPI_FIRSTBIT_MSB;                                      //CR1.7=0, 高字节在前
+      hspi1.Init.TIMode                        = SPI_TIMODE_DISABLE;                              //CR2.4=0, SPI Mortorola模式      
+      hspi1.Init.CRCCalculation           = SPI_CRCCALCULATION_DISABLE;           //CR1.13=0, 不使能CRC
+      hspi1.Init.CRCPolynomial            = 10;
+
+
+      HAL_SPI_Init(&hspi1) ；
+ 
+
+-----------
+
+
+参数： hspi1
+HAL_SPI_Init( *hspi)
+ 
+        if (hspi->Init.TIMode == SPI_TIMODE_DISABLE)             //yes
+                if (hspi->Init.Mode == SPI_MODE_MASTER)           //yes
+                          ......忽略 （断言spi波特率在合理列表内）
+ 
+        hspi->Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE; 
+
+        if (hspi->State == HAL_SPI_STATE_RESET)
+                hspi->Lock = HAL_UNLOCKED; 
+                HAL_SPI_MspInit(hspi); 
+       
+        hspi->State = HAL_SPI_STATE_BUSY;
+
+         __HAL_SPI_DISABLE(hspi);
+
+
+        /*----------------------- SPIx CR1 & CR2 Configuration ---------------------*/
+
+        WRITE_REG(hspi->Instance->CR1, (    (hspi->Init.Mode & (SPI_CR1_MSTR | SPI_CR1_SSI)) |                               //CR1.8,2=11， 从机内部片选（待理解），主模式
+                                                                           (hspi->Init.Direction & (SPI_CR1_RXONLY | SPI_CR1_BIDIMODE)) |      //CR1.15,10=00， 双工收发，两线单一方向
+                                                                           (hspi->Init.DataSize & SPI_CR1_DFF) |                                                        //CR1.11=0,   8位数据
+                                                                           (hspi->Init.CLKPolarity & SPI_CR1_CPOL) |                                               //CR1.1=0,  空闲时clk为低电平  
+                                                                           (hspi->Init.CLKPhase & SPI_CR1_CPHA) |                                                  //CR1.0=0,   第1个时钟沿捕捉第一个数据
+                                                                           (hspi->Init.NSS & SPI_CR1_SSM) |                                                               //CR1.9=1, 使能软件从机管理   
+                                                                            (hspi->Init.BaudRatePrescaler & SPI_CR1_BR_Msk) |                                //CR1.5-3=4, 32分频   
+                                                                            (hspi->Init.FirstBit        & SPI_CR1_LSBFIRST) |                                            //CR1.7=0, 高字节在前
+                                                                            (hspi->Init.CRCCalculation & SPI_CR1_CRCEN)) );                                      //CR1.13=0, 不使能CRC
+
+
+        /* Configure : NSS management, TI Mode */
+        WRITE_REG(hspi->Instance->CR2, (     ((hspi->Init.NSS >> 16U) & SPI_CR2_SSOE) |                    //CR2.2=0, 待理解
+                                                                           (hspi->Init.TIMode & SPI_CR2_FRF)));                                //CR2.4=0, SPI Mortorola模式
+
+ 
+        hspi->ErrorCode = HAL_SPI_ERROR_NONE;
+        hspi->State                 = HAL_SPI_STATE_READY;
+
+  
+-----------
+
+ 参数： hspi1
+ HAL_SPI_MspInit( * hspi)
+ 
+        if(hspi->Instance==SPI1)
+ 
+                __HAL_RCC_SPI1_CLK_ENABLE();        
+                       
+                //PA5                 ------> SPI1_SCK
+                //PA6                 ------> SPI1_MISO
+                //PB5                 ------> SPI1_MOSI 
+                  
+                GPIO_InitStruct.Pin = DW_SCK_Pin|DW_MISO_Pin;  //PIN5, PIN6
+                GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+                GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+                GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+                GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+                HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);       //设置PA5, PA6
+
+                GPIO_InitStruct.Pin = DW_MOSI_Pin;                //PIN5
+                GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+                GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+                GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+                GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+                HAL_GPIO_Init(DW_MOSI_GPIO_Port, &GPIO_InitStruct);   //设置PB5
+
+
+                /* Peripheral DMA init*/
+ 
+                hdma_spi1_rx.Instance = DMA2_Stream2;                                      //DMA2_Stream2
+                hdma_spi1_rx.Init.Channel = DMA_CHANNEL_3;
+                hdma_spi1_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;                    // DMA_SxCR, 数据传输方向 PERIPH_TO_MEMORY
+                hdma_spi1_rx.Init.PeriphInc = DMA_PINC_DISABLE;                                 // DMA_SxCR, 外设为固定地址
+                hdma_spi1_rx.Init.MemInc = DMA_MINC_ENABLE;                                  // DMA_SxCR, memory 为地址跟随增加
+                hdma_spi1_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;   // DMA_SxCR, PBURST=0，外设 传输增量为0
+                hdma_spi1_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;      // DMA_SxCR, MBURST=0，memory 传输增量为0
+                hdma_spi1_rx.Init.Mode = DMA_NORMAL;                                                 // DMA_SxCR, 0, 非圆形模式
+                hdma_spi1_rx.Init.Priority = DMA_PRIORITY_HIGH;                                   // DMA_SxCR, 优先级为HIGH
+                hdma_spi1_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;                       //DMA_SxFCR, DMDIS=0, 或直接模式（全速FIFO）
+
+                HAL_DMA_Init(&hdma_spi1_rx)；
+
+                __HAL_LINKDMA(hspi,hdmarx,hdma_spi1_rx);
+                               hspi1->hdmarx = &hdma_spi1_rx;  
+                               hdma_spi1_rx.Parent =  hspi1;       
+ 
+
+                hdma_spi1_tx.Instance = DMA2_Stream3;
+                hdma_spi1_tx.Init.Channel = DMA_CHANNEL_3;
+                hdma_spi1_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
+                hdma_spi1_tx.Init.PeriphInc = DMA_PINC_DISABLE;
+                hdma_spi1_tx.Init.MemInc = DMA_MINC_ENABLE;
+                hdma_spi1_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+                hdma_spi1_tx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+                hdma_spi1_tx.Init.Mode = DMA_NORMAL;
+                hdma_spi1_tx.Init.Priority = DMA_PRIORITY_HIGH;
+                hdma_spi1_tx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+
+                HAL_DMA_Init(&hdma_spi1_tx)；
+
+                __HAL_LINKDMA(hspi,hdmatx,hdma_spi1_tx);
+ 
+ 
+-------
+
+参数：hdma_spi1_rx
+HAL_DMA_Init( *hdma)     
+        
+    ......(略)
+
+
+
+=====================================spi通过发送数据=====待完成=============================== 
+
+
+struct spi_s
+{
+    void (*cs_low)(void *handler);
+    void (*cs_high)(void *handler);
+    void (*slow_rate)(void *handler);
+    void (*fast_rate)(void *handler);
+    int (*read)(void *handler, uint16_t headerLength, const uint8_t *headerBuffer, uint16_t readlength, uint8_t *readBuffer);
+    int (*write)(void *handler, uint16_t headerLength, const uint8_t *headerBuffer, uint16_t readlength, const uint8_t *readBuffer);
+    int (*read_write)(void *handler, uint8_t *readBuffer, uint16_t readlength, uint8_t *writebuffer, uint16_t writeLength);
+    int (*write_with_crc)(void *handler, uint16_t headerLength, const uint8_t *headerBuffer, uint16_t bodyLength, const uint8_t *bodyBuffer, uint8_t crc8);
+    void *handler;
+};
+typedef struct spi_s spi_t;
+ 
+
+static const struct spi_s spi1 =
+{
+    .cs_high = spi_cs_high_,
+    .cs_low = spi_cs_low_,
+    .slow_rate = spi_slow_rate_,
+    .fast_rate = spi_fast_rate_,
+    .read = readfromspi_,
+    .write = writetospi_,
+    .write_with_crc = NULL,
+    .handler = &spi_handler1
+};
+ 
+static int read_from_spi(uint16_t headerLength, uint8_t *headerBuffer, uint16_t readlength, uint8_t *readBuffer)
+{
+    struct spi_s *spi = hal_uwb.uwbs->spi;
+    return spi->read(spi->handler, headerLength, headerBuffer, readlength, readBuffer);
+}
+
+
+
+
+
+
+
+
+================================================参考========================================
+
+   
+ 
+
+=====================================spi通过发送数据=====普通方式和dma方式================================ 
+
+
+ flow： (spi初始化)
+
+             BoardInit -- MX_SPI3_Init -- HAL_SPI_Init --  HAL_SPI_MspInit  --  HAL_DMA_Init   -- __HAL_LINKDMA --  ?   ( IRQ)
+ 
+
+ flow： (spi的发送数据, 有普通方式和dma方式两种)
+
+         init  --  x  --  write_to_spi  -- spi3->write -- writetospi_  --   (DMA/normal)
+
+------------------------------------------------------
+ 
+
+ write_to_spi(  headerLength,   *headerBuffer,   bodyLength,   *bodyBuffer)
+ 
+         struct spi_s   *spi = hal_uwb.uwbs->spi;  //spi3
+
+         //spi->write(spi->handler, headerLength, headerBuffer, bodyLength, bodyBuffer);
+         //     spi3->write(spi_handler3, headerLength, headerBuffer, bodyLength, bodyBuffer);
+                       writetospi_(spi_handler3, headerLength, headerBuffer, bodyLength, bodyBuffer);
+ 
+
+------
+
+//初始化uwbs，唤醒dw3000
+ init( )
+ 
+    hal_uwb.uwbs = &uwbs;
+    hal_uwb.uwbs->dw = &local_hal_dw;
+
+    //hal_uwb.uwbs->spi = hal_uwb_init_spi(hal_uwb.uwbs->spi_io_cfg);   //spi3
+    //     hal_uwb.uwbs->spi = hal_uwb_init_spi(  .idx = 3 );
+              //spi =  init_spi(spi_port_cfg);
+                    spi = spi3;
+               spi->slow_rate(spi->handler);
+     
+    
+    //hal_uwb.wakeup_with_io();
+    //    hal_uwb_wakeup_with_io();
+    //           hal_uwb.wakeup_fast();
+                        hal_uwb_wakeup_fast(),   //通过cs唤醒dw3000
+
+  
+-----------
+
+参数： spi_handler3
+ writetospi_(  *handler,   headerLength,   *headerBuffer,   bodyLength,  *bodyBuffer)
+ 
+                spi_handle_t *spi_handler = handler;
+ 
+                kk1 = spi_handler3->phspi->Instance;      //=SPI3
+                if( kk1  != SPI3 )                                              //都是SPI3, 条件不成立
+                           error_handler(1, _ERR_SPI_DMA);
+  
+                while(spi_handler->Lock == HAL_LOCKED);
+                __HAL_LOCK(spi_handler);            
+
+                HAL_GPIO_WritePin(spi_handler->csPort, spi_handler->csPin, GPIO_PIN_RESET);     //拉低CS
+
+                if (headerLength + bodyLength < SPI_DMA_MIN)    //32
+
+                                HAL_SPI_Transmit( SPI3, headerBuffer, headerLength, 10);                /* Send header in polling mode */
+
+                                if (bodyLength > 0)                                
+                                           HAL_SPI_Transmit( SPI3,  bodyBuffer, bodyLength, 10);            /* Send data in polling mode */
+                                 
+                else                
+                                
+                                HAL_SPI_Transmit( SPI3,  headerBuffer, headerLength, 10);              /* Send header in polling mode */
+
+                                if (bodyLength > 0)
+                                
+                                                spi_handler->TxComplete = TXRX_BLOCK_START;
+                                                __DSB();
+                                                __ISB();
+                                                
+                                                HAL_SPI_Transmit_DMA(SPI3,  bodyBuffer, bodyLength);      /* Send body in polling mode */
+                                                while (spi_handler->TxComplete != TXRX_COMPLETE);
+                                
+                
+                HAL_GPIO_WritePin(spi_handler->csPort, spi_handler->csPin, GPIO_PIN_SET);  //拉高CS
+                __HAL_UNLOCK(spi_handler);
+
+
+----------
+
+HAL_SPI_Transmit_DMA(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size)
+{
+  HAL_StatusTypeDef errorcode = HAL_OK;
+
+  /* Check Direction parameter */
+  assert_param(IS_SPI_DIRECTION_2LINES_OR_1LINE_2LINES_TXONLY(hspi->Init.Direction));
+
+  /* Lock the process */
+  __HAL_LOCK(hspi);
+
+  if (hspi->State != HAL_SPI_STATE_READY)
+  {
+    errorcode = HAL_BUSY;
+    __HAL_UNLOCK(hspi);
+    return errorcode;
+  }
+
+  if ((pData == NULL) || (Size == 0UL))
+  {
+    errorcode = HAL_ERROR;
+    __HAL_UNLOCK(hspi);
+    return errorcode;
+  }
+
+  /* Set the transaction information */
+  hspi->State       = HAL_SPI_STATE_BUSY_TX;
+  hspi->ErrorCode   = HAL_SPI_ERROR_NONE;
+  hspi->pTxBuffPtr  = (uint8_t *)pData;
+  hspi->TxXferSize  = Size;
+  hspi->TxXferCount = Size;
+
+  /* Init field not used in handle to zero */
+  hspi->pRxBuffPtr  = NULL;
+  hspi->TxISR       = NULL;
+  hspi->RxISR       = NULL;
+  hspi->RxXferSize  = (uint16_t)0UL;
+  hspi->RxXferCount = (uint16_t)0UL;
+
+  /* Configure communication direction : 1Line */
+  if (hspi->Init.Direction == SPI_DIRECTION_1LINE)
+  {
+    SPI_1LINE_TX(hspi);
+  }
+
+  /* Packing mode management is enabled by the DMA settings */
+  if (((hspi->Init.DataSize > SPI_DATASIZE_16BIT) && (hspi->hdmatx->Init.MemDataAlignment != DMA_MDATAALIGN_WORD))    || \
+      ((hspi->Init.DataSize > SPI_DATASIZE_8BIT) && ((hspi->hdmatx->Init.MemDataAlignment != DMA_MDATAALIGN_HALFWORD) && \
+                                                     (hspi->hdmatx->Init.MemDataAlignment != DMA_MDATAALIGN_WORD))))
+  {
+    /* Restriction the DMA data received is not allowed in this mode */
+    errorcode = HAL_ERROR;
+    __HAL_UNLOCK(hspi);
+    return errorcode;
+  }
+
+  /* Adjust XferCount according to DMA alignment / Data size */
+  if (hspi->Init.DataSize <= SPI_DATASIZE_8BIT)
+  {
+    if (hspi->hdmatx->Init.MemDataAlignment == DMA_MDATAALIGN_HALFWORD)
+    {
+      hspi->TxXferCount = (hspi->TxXferCount + (uint16_t) 1UL) >> 1UL;
+    }
+    if (hspi->hdmatx->Init.MemDataAlignment == DMA_MDATAALIGN_WORD)
+    {
+      hspi->TxXferCount = (hspi->TxXferCount + (uint16_t) 3UL) >> 2UL;
+    }
+  }
+  else if (hspi->Init.DataSize <= SPI_DATASIZE_16BIT)
+  {
+    if (hspi->hdmatx->Init.MemDataAlignment == DMA_MDATAALIGN_WORD)
+    {
+      hspi->TxXferCount = (hspi->TxXferCount + (uint16_t) 1UL) >> 1UL;
+    }
+  }
+  else
+  {
+    /* Adjustment done */
+  }
+
+  /* Set the SPI TxDMA Half transfer complete callback */
+  hspi->hdmatx->XferHalfCpltCallback = SPI_DMAHalfTransmitCplt;
+
+  /* Set the SPI TxDMA transfer complete callback */
+  hspi->hdmatx->XferCpltCallback = SPI_DMATransmitCplt;
+
+  /* Set the DMA error callback */
+  hspi->hdmatx->XferErrorCallback = SPI_DMAError;
+
+  /* Set the DMA AbortCpltCallback */
+  hspi->hdmatx->XferAbortCallback = NULL;
+
+  /* Clear TXDMAEN bit*/
+  CLEAR_BIT(hspi->Instance->CFG1, SPI_CFG1_TXDMAEN);
+
+  /* Enable the Tx DMA Stream/Channel */
+  if (HAL_OK != HAL_DMA_Start_IT(hspi->hdmatx, (uint32_t)hspi->pTxBuffPtr, (uint32_t)&hspi->Instance->TXDR,
+                                 hspi->TxXferCount))
+  {
+    /* Update SPI error code */
+    SET_BIT(hspi->ErrorCode, HAL_SPI_ERROR_DMA);
+
+    /* Unlock the process */
+    __HAL_UNLOCK(hspi);
+
+    hspi->State = HAL_SPI_STATE_READY;
+    errorcode = HAL_ERROR;
+    return errorcode;
+  }
+
+  /* Set the number of data at current transfer */
+  if (hspi->hdmatx->Init.Mode == DMA_CIRCULAR)
+  {
+    MODIFY_REG(hspi->Instance->CR2, SPI_CR2_TSIZE, 0UL);
+  }
+  else
+  {
+    MODIFY_REG(hspi->Instance->CR2, SPI_CR2_TSIZE, Size);
+  }
+
+  /* Enable Tx DMA Request */
+  SET_BIT(hspi->Instance->CFG1, SPI_CFG1_TXDMAEN);
+
+  /* Enable the SPI Error Interrupt Bit */
+  __HAL_SPI_ENABLE_IT(hspi, (SPI_IT_UDR | SPI_IT_FRE | SPI_IT_MODF));
+
+  /* Enable SPI peripheral */
+  __HAL_SPI_ENABLE(hspi);
+
+  if (hspi->Init.Mode == SPI_MODE_MASTER)
+  {
+    /* Master transfer start */
+    SET_BIT(hspi->Instance->CR1, SPI_CR1_CSTART);
+  }
+
+  /* Unlock the process */
+  __HAL_UNLOCK(hspi);
+  return errorcode;
+}
+
+------
+
+
+--//数据流： 使用 
+--//参数： 
+ HAL_DMA_Start_IT( *hdma,   SrcAddress,   DstAddress,   DataLength)
+  
+    __HAL_LOCK(hdma);
+
+    if(HAL_DMA_STATE_READY == hdma->State)
+ 
+        hdma->State = HAL_DMA_STATE_BUSY;
+        hdma->ErrorCode = HAL_DMA_ERROR_NONE;
+        __HAL_DMA_DISABLE(hdma);
+
+        /* Configure the source, destination address and the data length */
+        DMA_SetConfig(hdma, SrcAddress, DstAddress, DataLength);    //使用hi2s->pTxBuffPtr  
+
+        if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0U) /* DMA1 or DMA2 instance */
+        
+            //使能常用的中断
+            MODIFY_REG(( hdma->Instance)->CR, (DMA_IT_TC | DMA_IT_TE | DMA_IT_DME | DMA_IT_HT), (DMA_IT_TC | DMA_IT_TE | DMA_IT_DME));
+
+            if(hdma->XferHalfCpltCallback != NULL)
+                /* Enable Half Transfer IT if corresponding Callback is set */
+                (hdma->Instance)->CR    |= DMA_IT_HT;
+
+        
+        else   /* BDMA channel */
+        
+           （忽略） 
+
+
+        if(IS_DMA_DMAMUX_ALL_INSTANCE(hdma->Instance) != 0U) /* No DMAMUX available for BDMA1 */
+        
+            /* Check if DMAMUX Synchronization is enabled */
+            if((hdma->DMAmuxChannel->CCR & DMAMUX_CxCR_SE) != 0U)
+            
+                /* Enable DMAMUX sync overrun IT*/
+                hdma->DMAmuxChannel->CCR |= DMAMUX_CxCR_SOIE;
+            
+            if(hdma->DMAmuxRequestGen != 0U)
+            
+                /* if using DMAMUX request generator, enable the DMAMUX request generator overrun IT*/
+                /* enable the request gen overrun IT */
+                hdma->DMAmuxRequestGen->RGCR |= DMAMUX_RGxCR_OIE;                   
+
+        /* Enable the Peripheral */
+        __HAL_DMA_ENABLE(hdma);
+
+
+
+=============================================spi接收数据===================================== 
+
+
+ flow： (spi初始化)
+
+             BoardInit -- MX_SPI3_Init -- HAL_SPI_Init --  HAL_SPI_MspInit  --  HAL_DMA_Init   -- __HAL_LINKDMA --  ?   ( IRQ)
+ 
+
+ flow： (spi的发送数据, 有普通方式和dma方式两种)
+
+         init  --  x  --  read_from_spi  -- spi3->read -- readfromspi_  --   
+
+
+----------------------
+
+
+ read_from_spi(  headerLength,   *headerBuffer,   readlength,  *readBuffer)
+ 
+    struct spi_s *spi = hal_uwb.uwbs->spi;
+    return spi->read(spi->handler, headerLength, headerBuffer, readlength, readBuffer);
+ 
+
+ 

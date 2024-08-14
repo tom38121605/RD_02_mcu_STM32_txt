@@ -1,0 +1,170 @@
+
+ 
+
+=========================创建FlushTask任务==========================
+
+flow:
+
+         FlushTaskInit  --  create_flush_task -- FlushTask 
+
+
+
+----------------------------------------------------
+
+
+main()
+
+   FlushTaskInit() ;
+
+
+------------------------------------------------
+
+ FlushTaskInit() 
+
+    create_flush_task(FlushTask, &flushTask,  FLUSH_TASK_STACK_SIZE_BYTES);
+ 
+    ret = init_tx_msg();
+    if(ret != _NO_ERR) 
+         error_handler(1, _ERR_TxBuf_Overflow);
+ 
+
+-------------------
+
+//创建FlushTask任务
+ create_flush_task(void(  *FlushTask , * flushTask,   stackSize)
+ 
+      osThreadDef(flushtask, FlushTask, PRIO_FlushTask, 0, stackSize/4);     //PRIO_FlushTask, 优先级为+1
+
+
+      flushTask->Handle = osThreadCreate(osThread(flushtask), NULL);
+
+      if(flushTask->Handle) 
+            ret = _NO_ERR;
+ 
+      flushTask->SignalMask = FLUSH_DATA;  //2
+ 
+ 
+ 
+------------- 
+
+FlushTask(  * argument)
+ 
+    while(1)
+    
+        Watchdog.refresh();
+
+        osSignalWait(flushTask.SignalMask, USB_FLUSH_MS);  //5
+
+        flush_report_buf();
+
+
+-------------
+
+osEvent osSignalWait ( signals,   millisec)
+ 
+    ret.value.signals = 0;    
+
+   if (millisec != 0)     
+        ticks = millisec / portTICK_PERIOD_MS;    //1000 / configTICK_RATE_HZ=1000/1000
+        if (ticks == 0)    
+            ticks = 1;         
+     
+    if (inHandlerMode()) 
+        ret.status = osErrorISR;    /*Not allowed in ISR*/
+ 
+    else
+ 
+        if(xTaskNotifyWait( 0, signals,  &ret.value.signals, ticks) != pdTRUE)     
+            if(ticks == 0)    ret.status = osOK;
+            else    ret.status = osEventTimeout;
+    
+        else if(ret.value.signals < 0)    
+            ret.status =    osErrorValue;         
+ 
+        else    
+              ret.status =    osEventSignal;
+     
+         
+------------------------------
+
+
+flush_report_buf()
+
+            for (int i = 0; i < chunk; i++)
+            {
+                ubuf[i] = txHandle.Report.buf[tail];
+                tail = (tail + 1) & (size - 1);
+            }
+
+            //deca_uart_transmit(ubuf, chunk)
+                   HAL_UART_Transmit_DMA(&huart5, ptr, sz);    //ptr=ubuf,    sz= chunk
+
+
+
+
+========================================task 的消息=================================
+
+
+
+main( )
+ 
+    //ControlTaskInit();
+            create_control_task( CtrlTask,   &ctrlTask,   CONTROL_TASK_STACK_SIZE_BYTES);
+
+-------------
+
+ create_control_task(  *CtrlTask , * ctrlTask,   stackSize)
+ 
+ 
+    osThreadDef(ctrlTask, CtrlTask, PRIO_CtrlTask, 0, stackSize/4);
+
+    ctrlTask->Handle = osThreadCreate(osThread(ctrlTask), NULL);
+
+    if(ctrlTask->Handle)     
+        ret = _NO_ERR;
+   
+    ctrlTask->SignalMask = CTRL_DATA_RECEIVED | CTRL_STOP_APP;     //设置第一次的消息
+     
+   
+
+---------------------
+
+
+CtrlTask(  * arg)
+ 
+    usb_data_e    res;
+
+    while(1)
+     
+        osEvent evt = osSignalWait(ctrlTask.SignalMask , osWaitForever);        //取得消息
+ 
+        if (evt.value.signals & CTRL_STOP_APP)         
+              osDelay(500); 
+              command_stop_received();        
+ 
+        if (evt.value.signals & CTRL_DATA_RECEIVED)
+         
+              enter_critical_section();
+
+              /* mutex if usb2spiTask using the app.local_buf*/
+              res = usb_uart_rx();                 //processes usb/uart input :   copy the input to the app.local_buff[ local_buff_length ]  for future processing  
+              leave_critical_section();
+
+              AppGet()->command_parser(res, (char*)local_buff);
+       
+
+-------------
+
+//向ControlTask传递消息 CTRL_DATA_RECEIVED
+NotifyControlTask( )
+ 
+    if(ctrlTask.Handle != NULL) 
+ 
+        osSignalSet(ctrlTask.Handle, CTRL_DATA_RECEIVED);      //向ControlTask传递消息 CTRL_DATA_RECEIVED
+ 
+
+
+
+
+
+

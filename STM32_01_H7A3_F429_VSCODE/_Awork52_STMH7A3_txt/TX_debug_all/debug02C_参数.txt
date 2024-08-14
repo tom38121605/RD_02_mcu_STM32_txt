@@ -1,0 +1,359 @@
+
+
+================================关于SPI1的参数1/1=============================
+
+ MX_SPI1_Init( )
+ 
+      hspi1.Instance                             = SPI1;
+      hspi1.Init.Mode                            = SPI_MODE_MASTER;                   //CR1.8,2=11， 从机内部片选（待理解），主模式
+      hspi1.Init.Direction                    = SPI_DIRECTION_2LINES;                //CR1.15,10=00， 双工收发，两线单一方向
+      hspi1.Init.DataSize                    = SPI_DATASIZE_8BIT;                        //CR1.11=0,   8位数据
+      hspi1.Init.CLKPolarity                = SPI_POLARITY_LOW;                     //CR1.1=0,  空闲时clk为低电平  
+      hspi1.Init.CLKPhase                    = SPI_PHASE_1EDGE;                        //CR1.0=0,   第1个时钟沿捕捉第一个数据
+      hspi1.Init.NSS                             = SPI_NSS_SOFT;                                           //CR1.9=1, 使能软件从机管理   
+      hspi1.Init.BaudRatePrescaler   = SPI_BAUDRATEPRESCALER_32;                 //CR1.5-3=4, 32分频   
+      hspi1.Init.FirstBit                        = SPI_FIRSTBIT_MSB;                                      //CR1.7=0, 高字节在前
+      hspi1.Init.TIMode                        = SPI_TIMODE_DISABLE;                           //CR2.4=0, SPI Mortorola模式           
+      hspi1.Init.CRCCalculation           = SPI_CRCCALCULATION_DISABLE;           //CR1.13=0, 不使能CRC
+      hspi1.Init.CRCPolynomial            = 10;
+
+
+================================关于SPI1的DMA设置的参数1/3=============================
+ 
+ 参数： hspi1
+ HAL_SPI_MspInit( * hspi) 
+
+                /* Peripheral DMA init*/
+ 
+                hdma_spi1_rx.Instance = DMA2_Stream2;                                      //DMA2_Stream2
+                hdma_spi1_rx.Init.Channel = DMA_CHANNEL_3;
+                hdma_spi1_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;                    // DMA_SxCR, 数据传输方向 PERIPH_TO_MEMORY
+                hdma_spi1_rx.Init.PeriphInc = DMA_PINC_DISABLE;                                 // DMA_SxCR, 外设为固定地址
+                hdma_spi1_rx.Init.MemInc = DMA_MINC_ENABLE;                                  // DMA_SxCR, memory 为地址跟随增加
+                hdma_spi1_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;   // DMA_SxCR, PBURST=0，外设 传输增量为0
+                hdma_spi1_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;      // DMA_SxCR, MBURST=0，memory 传输增量为0
+                hdma_spi1_rx.Init.Mode = DMA_NORMAL;                                                 // DMA_SxCR, 0, 非圆形模式
+                hdma_spi1_rx.Init.Priority = DMA_PRIORITY_HIGH;                                   // DMA_SxCR, 优先级为HIGH
+                hdma_spi1_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;                      //DMA_SxFCR, DMDIS=0, 或直接模式（全速FIFO）
+
+                HAL_DMA_Init(&hdma_spi1_rx)；
+
+                __HAL_LINKDMA(hspi,hdmarx,hdma_spi1_rx);
+                               hspi1->hdmarx = &hdma_spi1_rx;  
+                               hdma_spi1_rx.Parent =  hspi1;       
+ 
+
+                hdma_spi1_tx.Instance = DMA2_Stream3;
+                hdma_spi1_tx.Init.Channel = DMA_CHANNEL_3;
+                hdma_spi1_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
+                hdma_spi1_tx.Init.PeriphInc = DMA_PINC_DISABLE;
+                hdma_spi1_tx.Init.MemInc = DMA_MINC_ENABLE;
+                hdma_spi1_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+                hdma_spi1_tx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+                hdma_spi1_tx.Init.Mode = DMA_NORMAL;
+                hdma_spi1_tx.Init.Priority = DMA_PRIORITY_HIGH;
+                hdma_spi1_tx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+
+                HAL_DMA_Init(&hdma_spi1_tx)；
+
+                __HAL_LINKDMA(hspi,hdmatx,hdma_spi1_tx);
+
+
+
+================================关于SPI3引脚设置的参数1/2=============================
+
+ HAL_SPI_MspInit(SPI_HandleTypeDef* hspi)
+ 
+                 ......
+
+                //PA5                 ------> SPI1_SCK
+                //PA6                 ------> SPI1_MISO
+                //PB5                 ------> SPI1_MOSI 
+                  
+                GPIO_InitStruct.Pin = DW_SCK_Pin|DW_MISO_Pin;
+                GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+                GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+                GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+                GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+                HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+                GPIO_InitStruct.Pin = DW_MOSI_Pin;
+                GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+                GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+                GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+                GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+                HAL_GPIO_Init(DW_MOSI_GPIO_Port, &GPIO_InitStruct);
+
+
+
+================================关于SPI1引脚设置的参数2/2=============================
+       
+static spi_handle_t spi_handler1 =
+ 
+    .phspi          = &hspi1,
+    .prescaler_slow = SPI_BAUDRATEPRESCALER_16,  // 4.5 MHz
+    .prescaler_fast = SPI_BAUDRATEPRESCALER_2,   // 36 MHz
+    .csPin          = DW_CS_Pin,
+    .csPort         = DW_CS_GPIO_Port,
+    .Lock           = HAL_UNLOCKED,
+
+
+
+================================关于hspi1的参数1/1=============================
+
+
+
+ MX_SPI1_Init( )
+ 
+      hspi1.Instance                             = SPI1;
+      hspi1.Init.Mode                            = SPI_MODE_MASTER;
+      hspi1.Init.Direction                 = SPI_DIRECTION_2LINES;
+      hspi1.Init.DataSize                    = SPI_DATASIZE_8BIT;
+      hspi1.Init.CLKPolarity             = SPI_POLARITY_LOW;
+      hspi1.Init.CLKPhase                    = SPI_PHASE_1EDGE;
+      hspi1.Init.NSS                             = SPI_NSS_SOFT;
+      hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
+      hspi1.Init.FirstBit                    = SPI_FIRSTBIT_MSB;
+      hspi1.Init.TIMode                        = SPI_TIMODE_DISABLE;
+      hspi1.Init.CRCCalculation        = SPI_CRCCALCULATION_DISABLE;
+      hspi1.Init.CRCPolynomial         = 10;
+
+      HAL_SPI_Init(&hspi1) ；
+ 
+
+
+}
+
+
+
+
+================================================参考========================================
+
+
+
+
+
+
+
+
+
+
+
+================================关于spi3的参数1/1=============================
+ 
+static const struct spi_s spi3 =
+{
+    .cs_high = spi_cs_high_,
+    .cs_low = spi_cs_low_,
+    .slow_rate = spi_slow_rate_,
+    .fast_rate = spi_fast_rate_,
+    .read = readfromspi_,
+    .write = writetospi_,
+    .write_with_crc = NULL,
+    .handler = &spi_handler3
+};
+
+
+================================关于spi_handler3的参数1/1=============================
+         
+
+ spi_handle_t    spi_handler3 =
+{ 
+    .phspi          = &hspi3,
+    .prescaler_slow = SPI_BAUDRATEPRESCALER_32,   // 4.5 MHz
+    .prescaler_fast = SPI_BAUDRATEPRESCALER_4,       // 36 MHz
+    .csPin          = DW_CS_Pin,                   //GPIO_PIN_15
+    .csPort         = DW_CS_GPIO_Port,     // GPIOA
+    .Lock           = HAL_UNLOCKED,
+ 
+    .TxComplete     = TXRX_COMPLETE,
+    .RxComplete     = TXRX_COMPLETE, 
+};
+
+
+
+                     
+
+
+ 
+
+========================关于uwbs的参数1/2======spi3==============================
+
+
+struct dw_s   uwbs =
+{
+    .devid = 0,
+    .spi_io_cfg = &dw3000_spi_io_cfg,              //看下面 cfg
+    .ext_io_cfg = &dw3000_ext_io_cfg,             //看下面 cfg
+    .void_cfg   = &dw3000_void_io_cfg,            //看下面 cfg
+
+    .spi = NULL,  /* SPI functions */                  //看下面的init
+    .dw  = NULL   /* Driver function */             //看下面的init
+};
+
+
+---
+
+init( )
+
+    hal_uwb.uwbs = &uwbs;
+    hal_uwb.uwbs->dw = &local_hal_dw;  //看下面
+
+    //hal_uwb.uwbs->spi = hal_uwb_init_spi(hal_uwb.uwbs->spi_io_cfg);   
+           hal_uwb.uwbs->spi = spi3; 
+
+           //spi3->slow_rate(spi_handler3);
+                    spi_slow_rate_(spi_handler3);
+
+---
+
+static const struct spi_s    spi3 =
+{
+    .cs_high = spi_cs_high_,
+    .cs_low = spi_cs_low_,
+    .slow_rate = spi_slow_rate_,
+    .fast_rate = spi_fast_rate_,
+    .read = readfromspi_,
+    .write = writetospi_,
+    .write_with_crc = NULL,
+    .handler = &spi_handler3
+};
+
+static struct dwchip_s local_hal_dw = 
+{
+    .SPI = NULL,
+    .wakeup_device_with_io = NULL,
+    .dwt_driver = NULL,
+    .callbacks = {0},
+    .config = NULL,
+    .llhw = NULL,
+    .mcps_ops = NULL,
+    .calib_data = NULL,
+    .mcps_runtime = NULL,
+    .rx = NULL,
+    .coex_gpio_pin = 0,
+    .coex_gpio_active_state = 0,
+    .priv = NULL
+};
+
+ 
+------------------------- 
+
+static const spi_port_config_t dw3000_spi_io_cfg =
+{
+    .idx = 3
+};
+
+static const struct uwbs_port_config_STM_s dw3000_void_io_cfg =
+{
+	.irqPort       = DW_IRQ_GPIO_Port,            //GPIOB
+	.rstPort       = DW_RST_GPIO_Port,             //GPIOD
+	.wakeUpPort    = DW_WUP_GPIO_Port,    //GPIOB
+};
+
+
+static const struct uwbs_port_config_s dw3000_ext_io_cfg =
+{
+    .irqPin        = DW_IRQ_Pin,                          //GPIO_PIN_3
+    .irqN          = DW_SPI_EXIT_IRQ_NUM,       // EXTI3_IRQn
+    .rstPin        = DW_RST_Pin,                            //GPIO_PIN_2
+    .rstIrqN       = DW_RST_EXIT_IRQ_NUM,      //EXTI2_IRQn
+    .wakeUpPin     = DW_WUP_Pin,                   //GPIO_PIN_4
+};
+
+
+------------------
+
+struct dw_s
+{
+    uint32_t devid;
+    const struct spi_port_config_s *spi_io_cfg;
+    const struct uwbs_port_config_s *ext_io_cfg;
+    const void *void_cfg;
+    struct spi_s *spi;   /* spi instance to this chip */
+    struct dwchip_s *dw; /* driver instance to the chip */
+};
+ 
+
+
+========================关于uwbs的参数2/2====================================
+
+probe( ) 
+ 
+   ......
+
+    if (ret == 0)   // 成功找到dw3000设备 
+        ......
+        read_from_spi( 1, &addr, 4, buf);
+        hal_uwb.uwbs->devid = buf[3] << 24 | buf[2] << 16 | buf[1] << 8 | buf[0];
+
+
+ 
+
+================================关于SPI3的DMA设置的参数2/3=============================
+
+
+参数： hdma_spi3_rx
+HAL_DMA_Init( *hdma)     //here for spi3
+
+        if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0U)     // DMA1 or DMA2 instance       
+
+                registerValue = (hdma->Instance)->CR;
+
+                //清0下面各位
+                DMA2_Stream2->CR  &= ~( DMA_SxCR_MBURST |    //memory 传输增量  --待理解
+                                                     DMA_SxCR_PBURST |     //外设 传输增量  --待理解
+                                                     DMA_SxCR_PL  |             //优先级
+                                                     DMA_SxCR_MSIZE  |      //memory datasize
+                                                     DMA_SxCR_PSIZE  |       //外设 datasize
+                                                     DMA_SxCR_MINC  |       //memory 地址跟随模式   
+                                                     DMA_SxCR_PINC   |        //外设 地址跟随模式
+                                                     DMA_SxCR_CIRC   |         //圆形模式
+                                                     DMA_SxCR_DIR   |          //数据传输方向
+                                                     DMA_SxCR_CT     |         //当前内存是指向memory0还是memory1 （双缓冲模式下）
+                                                     DMA_SxCR_DBM);         //是否双缓冲
+
+              DMA2_Stream2->CR   |=   hdma->Init.Direction  |         //DMA_MEMORY_TO_PERIPH ， //  DMA_SxCR, 数据传输方向 MEMORY_TO_PERIPH
+                                               hdma->Init.PeriphInc  |        //DMA_PINC_DISABLE                   // DMA_SxCR, 外设为固定地址
+                                               hdma->Init.MemInc  |           //DMA_MINC_ENABLE                  // DMA_SxCR, memory 为地址跟随增加
+                                               hdma->Init.PeriphDataAlignment |    //DMA_PDATAALIGN_BYTE;     // DMA_SxCR, PBURST=0，外设 传输增量为0
+                                               hdma->Init.MemDataAlignment |      //DMA_MDATAALIGN_BYTE      // DMA_SxCR, MBURST=0，  memory 传输增量为0
+                                               hdma->Init.Mode  |                              //DMA_DMA_NORMAL              // DMA_SxCR, 0, 非圆形模式
+                                               hdma->Init.Priority;                              //DMA_DMA_PRIORITY_LOW   // DMA_SxCR, 优先级为低
+ 
+ 
+                 //-----读取和设置DMA的FCR寄存器-----
+ 
+                 DMA2_Stream2->FCR &=~(DMA_SxFCR_DMDIS | DMA_SxFCR_FTH);  //清零DMDIS,  FTH，或 为直接模式全速FIFO
+
+                DMA2_Stream2->FCR |= hdma->Init.FIFOMode;           //DMA_SxFCR，DMDIS=0, 不使能DMDIS
+ 
+
+                //------设置LIFCR-----
+
+                //regs_dma =  DMA_CalcBaseAndBitshift(hdma);   //或0--LISR
+                      stream_number = (( ( hdma->Instance) & 0xFFU) - 16U) / 24U;          // 2 ，或表示DMA_streaming3， 已验证
+                      hdma->StreamIndex = flagBitshiftOffset[stream_number & 0x7U];    //  16          //已验证
+                      hdma->StreamBaseAddress = (  hdma->Instance  &  (~0x3FFU));      // 0 ,  指向 LISR and LIFCR   
+ 
+                      regs_dma  = hdma->StreamBaseAddress;        // 0 ,  指向 LISR and LIFCR   
+
+
+                //清LIFCR中的streaming3的所有中断标志
+                regs_dma->IFCR = 0x3FUL << (hdma->StreamIndex & 0x1FU); //= 0x3f<<16  （ 16指向streaming2）
+
+            
+        hdma->ErrorCode = HAL_DMA_ERROR_NONE; 
+        hdma->State = HAL_DMA_STATE_READY;
+
+
+
+================================关于SPI3的DMA设置的参数3/3=============================
+
+
+
+                      待完成
+
+
+
+

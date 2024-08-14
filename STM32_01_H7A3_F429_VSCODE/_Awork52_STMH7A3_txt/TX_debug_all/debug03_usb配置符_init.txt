@@ -1,0 +1,1744 @@
+
+
+。把usb配置符USBD_AUDIO_ConfigDescriptor关联到USBD_AUDIO_CfgDesc指针
+。收到pc的配置描述符请求存到 hpcd_USB_OTG_FS->Setup 
+。把配置符存入到 大epin->xfer_buff
+。把配置符的到 大epin->xfer_buff发送给fifo到pc
+ 
+
+
+
+========================把配置描述符USBD_AUDIO_ConfigDescriptor关联到 USBD_AUDIO_CfgDesc===============
+
+flow1：把配置描述符USBD_AUDIO_ConfigDescriptor关联到 USBD_AUDIO_CfgDesc
+
+        StartDefaultTask -- Usb.update -- InterfaceUsbUpdate -- Usb.init -- MX_USB_DEVICE_Init  
+        --  USBD_AUDIO_RegisterInterface  --  aifc->GetConfigDesc -- AUDIO_USB_GetConfigDesc -- USB_AUDIO_GetConfigDescriptor
+    
+
+数据流： USBD_AUDIO_ConfigDescriptor -- USBD_AUDIO_CfgDesc   
+
+
+--------------------------------------------
+
+
+StartDefaultTask(  *argument)   
+ 
+        ......忽略
+  
+        while (1)  
+
+                if (EventManagerWaitAppRegistration( &queue_message, MESSAGE_QUEUE_TIMEOUT_MS) != -1)
+                         ......忽略
+    
+                //Usb.update();    //这里 
+                      InterfaceUsbUpdate(); 
+
+  
+----------------------------------------------- 
+
+InterfaceUsbUpdate( )
+ 
+        if(isVbusHigh())                                                                              //插入usb
+  
+                if (UsbGetState() == USB_DISCONNECTED)               //yes
+                        //Usb.init(usb_rx_callback_circular_buf);                       //这里   （函数的2个参数如何传入 -- 答：只是传入函数指针，在子程序内部才运行函数指针调用参数）
+                               MX_USB_DEVICE_Init(usb_rx_callback_circular_buf);          
+
+                        UsbSetState(USB_CONNECTED);
+               
+                else    //no
+                    if (UsbGetState() == USB_CONNECTED)
+                
+                         if(isUsbConfigured())                      
+                                UsbSetState(USB_CONFIGURED);
+                      
+                         else if(isUsbSuspended())                         
+                                Usb.deinit();
+                                UsbSetState(USB_DISCONNECTED);               
+     
+        else         //no                                                                                            //拨出usb
+ 
+                if (UsbGetState() == USB_DISCONNECTED)          
+                        Usb.deinit();
+                        UsbSetState(USB_DISCONNECTED);
+ 
+
+---------------------------------
+
+数据流：USBD_AUDIO_ConfigDescriptor -- hUsbDeviceFS->pConfDesc   （无作用，忽略）
+数据流：USBD_AUDIO_ConfigDescriptor -- USBD_AUDIO_CfgDesc 
+MX_USB_DEVICE_Init(void(*rx_callback)(uint8_t *ptr, size_t len))  //参数： usb_rx_callback_circular_buf  （或因没用cdc，没有用到）
+ 
+    ......(忽略)
+
+                //USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS);
+
+                       //初始化hpcd_USB_OTG_FS参数
+
+                       hUsbDeviceFS->pClass = NULL;
+                       hUsbDeviceFS->pUserData = NULL;
+                       hUsbDeviceFS->pConfDesc = NULL; 
+                       hUsbDeviceFS->dev_state = USBD_STATE_DEFAULT;
+
+                       hUsbDeviceFS->pDesc =  FS_Desc;
+                       hUsbDeviceFS->id = DEVICE_FS;                    // =0
+
+                       USBD_LL_Init(hUsbDeviceFS);     // hpcd_USB_OTG_FS初始参数设置。设置usb引脚， 使能 USB FS 时钟，中断优先级为6 ，使能usb的OTG_FS中断, 
+                                                                                      激活usb收发器, 输入输出端口初始化,使能输入输出端点中断.
+ 
+
+                //把配置符数组USBD_AUDIO_ConfigDescriptor，赋值给hUsbDeviceFS->pConfDesc    
+                //USBD_RegisterClass(&hUsbDeviceFS, USBD_AUDIO_CLASS);
+                          hUsbDeviceFS->pClass = USBD_AUDIO_CLASS;                              // hUsbDeviceFS->pClass =USBD_AUDIO_CLASS   //等于USBD_AUDIO     //这里 
+
+                           if (pdev->pClass->GetFSConfigDescriptor != NULL)     
+                                   //pdev->pConfDesc = pdev->pClass->GetFSConfigDescriptor(&len);                    
+                                   //    hUsbDeviceFS->pConfDesc = USBD_AUDIO_GetCfgDesc(&len);                  
+                                             hUsbDeviceFS->pConfDesc = USBD_AUDIO_ConfigDescriptor;        //把配置符数组赋值给结构体              //似乎无作用，可忽略 
+
+
+                //函数指针pUserData指向audio_class_interface， 把配置符数组USBD_AUDIO_ConfigDescriptor，赋值给USBD_AUDIO_CfgDesc           //这里  
+                //USBD_AUDIO_RegisterInterface(&hUsbDeviceFS, &audio_class_interface);
+
+                      hUsbDeviceFS->pUserData=audio_class_interface;   //这个pUserData相当于func函数集结构体
+
+                      //audio_class_interface->GetConfigDesc(&USBD_AUDIO_CfgDesc, &USBD_AUDIO_CfgDescSize, aifc->private_data);
+                      //   audio_class_interface->GetConfigDesc(   &USBD_AUDIO_CfgDesc,     &USBD_AUDIO_CfgDescSize,      audio_class_interface->private_data);
+                      //       AUDIO_USB_GetConfigDesc (   &USBD_AUDIO_CfgDesc,     &USBD_AUDIO_CfgDescSize,      audio_class_interface->private_data);
+                      //             USBD_AUDIO_CfgDescSize = USB_AUDIO_GetConfigDescriptor(USBD_AUDIO_CfgDesc);            
+                                             USBD_AUDIO_CfgDesc = USBD_AUDIO_ConfigDescriptor;                                                                 //数据流
+                                             USBD_AUDIO_CfgDescSize = CONFIG_DESCRIPTOR_SIZE
+
+
+               //功能：打开usb的全局中断，开启时钟，重新连接usb和枚举
+                //USBD_Start(&hUsbDeviceFS);
+                          ......忽略 （可见00.txt）
+
+
+=====================USB 配置描述符初始化====收到pc的配置描述符请求===============
+
+
+flow1：把配置描述符USBD_AUDIO_ConfigDescriptor关联到 USBD_AUDIO_CfgDesc
+
+        StartDefaultTask -- Usb.update -- InterfaceUsbUpdate -- Usb.init -- MX_USB_DEVICE_Init  
+        --  USBD_AUDIO_RegisterInterface  --  aifc->GetConfigDesc -- AUDIO_USB_GetConfigDesc -- USB_AUDIO_GetConfigDescriptor
+    
+
+数据流： USBD_AUDIO_ConfigDescriptor -- USBD_AUDIO_CfgDesc   
+
+
+flow2： 收到pc的配置描述符请求，保存到 hpcd_USB_OTG_FS->Setup  
+
+      OTG_FS_IRQHandler  -- HAL_PCD_IRQHandler -- (从机模式--GINTSTS收到数据包中断--GRXSTSP收到描述符请求 ) -- USB_ReadPacket   
+
+数据流：  usb中断 -- USBx_DFIFO -- hpcd_USB_OTG_FS->Setup  
+
+
+ -----------------------------------------------------------------------------------------------------
+
+
+//usb OTG 中断入口
+ OTG_FS_IRQHandler( ) 
+          HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS);
+
+--------------
+
+数据流： USBx_DFIFO -- hpcd_USB_OTG_FS->Setup
+HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)   参数： hpcd_USB_OTG_FS
+
+        USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;       //=USB_OTG_FS
+        uint32_t USBx_BASE =  USBx;                                               //=USB_OTG_FS
+
+        uint32_t    i, ep_intr, epint, epnum;
+        uint32_t    fifoemptymsk, temp;
+        USB_OTG_EPTypeDef    *ep;
+
+         //if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)     //这里只考虑从机         
+            if ( GINTSTS.0 == 0)      
+
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_RXFLVL))   //  有接收到pc数据包的中断
+                
+                        USB_MASK_INTERRUPT(USB_OTG_FS, USB_OTG_GINTSTS_RXFLVL);    //GINTMSK.4=0 ,暂时关fifo中断
+
+                        temp = USBx->GRXSTSP;
+
+                        //ep = &hpcd->OUT_ep[temp & USB_OTG_GRXSTSP_EPNUM];
+                             ep = &hpcd->OUT_ep[ GRXSTSP.EPNUM ];   //GRXSTSP.3-0
+
+                        if (((temp & USB_OTG_GRXSTSP_PKTSTS) >> 17) ==  STS_DATA_UPDT)   //GRXSTSP.20-17=0010 , 收到音乐数据                         
+                                (忽略......)                                
+                        
+                        else if (((temp & USB_OTG_GRXSTSP_PKTSTS) >> 17) == STS_SETUP_UPDT)    //  //GRXSTSP.20-17=0110 , 收到描述符请求指令 
+                        
+                                //USB_ReadPacket(USBx,  hpcd->Setup, 8 );                                              //这里
+                                      for (i = 0; i < 8; i++) 
+                                              *hpcd_USB_OTG_FS->Setup  =  USBx_DFIFO(0);         //数据流：USBx_DFIFO -- hpcd_USB_OTG_FS->Setup
+                                               hpcd_USB_OTG_FS->Setup++;
+
+                                ep->xfer_count += (temp & USB_OTG_GRXSTSP_BCNT) >> 4;
+                        
+ 
+                        USB_UNMASK_INTERRUPT(USB_OTG_FS, USB_OTG_GINTSTS_RXFLVL);         //GINTMSK.4=1, 重新开fifo中断
+                
+
+                //if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_OEPINT))
+                     if ( GINTSTS.19 == 1)  //OEPINT    // 如果有usb的数据進来（ pc发到mcu）                
+                         ......(忽略)     //先忽略，这里是回复描述符到pc  （详见下面）
+
+
+----------------
+
+#define USB_OTG_FIFO_BASE                   0x1000UL
+#define USB_OTG_FIFO_SIZE                     0x1000UL
+
+USBx_BASE=USB_OTG_FS
+#define USBx_DFIFO(i)          *(USBx_BASE + USB_OTG_FIFO_BASE + ((i) * USB_OTG_FIFO_SIZE))
+#define __UNALIGNED_UINT32_WRITE(addr, val)    ((*((__packed uint32_t *)(addr))) = (val))
+
+数据流：  USBx_DFIFO -- hpcd_USB_OTG_FS->Setup
+USB_ReadPacket(  *USBx,   *dest,    len)                               //参数： USB_OTG_FS， hpcd_USB_OTG_FS->Setup ，8
+ 
+        uint32_t USBx_BASE = USBx;         //=USB_OTG_FS
+
+        uint32_t  *pDest = dest;            // =  hpcd_USB_OTG_FS->Setup
+        uint32_t   i;
+        //uint32_t count32b = ( len + 3) / 4;   
+               uint32_t count32b = ( 8 + 3) / 4;               //=2
+
+        for (i = 0; i < count32b; i++)
+       
+                //__UNALIGNED_UINT32_WRITE(pDest, USBx_DFIFO(0));
+                //    pDest  =  USBx_DFIFO(0);   
+                //      ep->xfer_buff  =  USBx_DFIFO(0);   
+                           *hpcd_USB_OTG_FS->Setup  =  USBx_DFIFO(0);                               
+
+                hpcd_USB_OTG_FS->Setup+=4;  //每次从FIFO中读取4个字节
+
+     
+ 
+=====================USB 描述符初始化===保存usb配置符USBD_AUDIO_ConfigDescriptor到 大epin->xfer_buff===============
+
+
+flow1：把配置描述符USBD_AUDIO_ConfigDescriptor关联到 USBD_AUDIO_CfgDesc
+
+        StartDefaultTask -- Usb.update -- InterfaceUsbUpdate -- Usb.init -- MX_USB_DEVICE_Init  
+        --  USBD_AUDIO_RegisterInterface  --  aifc->GetConfigDesc -- AUDIO_USB_GetConfigDesc  -- USB_AUDIO_GetConfigDescriptor
+
+数据流： USBD_AUDIO_ConfigDescriptor -- USBD_AUDIO_CfgDesc
+
+
+flow2： 收到pc的配置描述符请求，保存到 hpcd_USB_OTG_FS->Setup  
+
+      OTG_FS_IRQHandler  -- HAL_PCD_IRQHandler -- (从机模式--GINTSTS收到数据包中断--GRXSTSP收到描述符请求 ) -- USB_ReadPacket   
+
+数据流：  usb中断 -- USBx_DFIFO -- hpcd_USB_OTG_FS->Setup  
+
+ 
+flow3:  保存usb配置符USBD_AUDIO_ConfigDescriptor到 大epin->xfer_buff  
+
+      HAL_PCD_IRQHandler -- (从机模式 -- 有输出端点的中断 -- DAINT有输出端口中断 -- DAINT是端口0的输出中断 -- STUP端点0的SETUP阶段已完成)
+
+      -- PCD_EP_OutSetupPacket_int -- HAL_PCD_SetupStageCallback -- USBD_LL_SetupStage - USBD_ParseSetupRequest  --  (req.1-0=00设备)  
+ 
+      --USBD_StdDevReq --  (req.6-5=00标准 -- req2.3-0=6 ) --USBD_GetDescriptor -- pdev->pDesc->GetDeviceDescriptor  -- USBD_FS_DeviceDescriptor 
+      -- (req3.15-8= 2配置符 -- pbuf = USBD_AUDIO_CfgDesc) -- (req5.len>0) -- USBD_CtlSendData --  USBD_LL_Transmit -- HAL_PCD_EP_Transmit  --  USB_EP0StartXfer
+
+
+     数据流： hpcd_USB_OTG_FS->Setup -- hUsbDeviceFS->request   (输入数据的处理)
+     数据流： USBD_AUDIO_CfgDesc --  -- 大epin->xfer_buff     (输出数据的处理)
+
+
+ -----------------------------USBD_GetDescriptor 过程--------------------------------------
+ 
+
+//USB中断入口函数
+ OTG_FS_IRQHandler( )
+
+        HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS);      
+
+-------------
+
+ 
+参数：hpcd_USB_OTG_FS
+ HAL_PCD_IRQHandler(  *hpcd)     //hpcd->Instance = USB_OTG_FS
+flow： 如果是usb从机模式  -- 如果输出端口有数据進来 -- 如果有输出端口中断 -- 如果是端口0的中断  -- setup阶段已完成
+
+
+        //if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)     //如果是usb从机模式
+             if ( GINTSTS.0 == 0)    
+
+                //if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_OEPINT))
+                if ( GINTSTS.19 == 1)  //OEPINT    // 如果有usb的数据進来（ pc发到mcu）
+                
+                        epnum = 0U;
+
+                        //ep_intr = USB_ReadDevAllOutEpInterrupt(hpcd->Instance);    //读取输出端口的中断
+                             ep_intr = DAINT.31-16  >> 16;  
+
+                        while (ep_intr != 0U)  //如果有输出端口中断
+                      
+                               if ((ep_intr & 0x1U) != 0U)    //如果是端口0的输出中断
+                              
+                                      //epint = USB_ReadDevOutEPInterrupt(hpcd->Instance,  epnum);  //usb端口0输出的细分子中断
+                                             epint = DOEPINT0;
+
+                                     // if ((epint & USB_OTG_DOEPINT_XFRC) == USB_OTG_DOEPINT_XFRC)  //传输完成中断
+                                            if (DOEPINT0.0==1)  
+         
+                                              CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_XFRC);    //清零DOEPINT0.0 
+                                              PCD_EP_OutXfrComplete_int(hpcd, epnum);    //待理解
+
+                                      //if ((epint & USB_OTG_DOEPINT_STUP) == USB_OTG_DOEPINT_STUP)   //判断控制端点的SETUP阶段已完成
+                                           if (DOEPINT0.3==1)
+                                  
+                                                CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_STUP);        //DOEPINT0.3=0
+
+                                                /* Class B setup phase done for previous decoded setup */
+                                                 PCD_EP_OutSetupPacket_int(hpcd, epnum);                                         //这里
+ 
+                       ......  (忽略)
+
+  
+ 
+-----------------
+
+参数：hpcd_USB_OTG_FS ， BB
+ PCD_EP_OutSetupPacket_int(  *hpcd,  epnum) 
+
+        USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;
+        uint32_t USBx_BASE = (uint32_t)USBx;
+        uint32_t gSNPSiD = *(__IO uint32_t *)(&USBx->CID + 0x1U);
+        uint32_t DoepintReg = USBx_OUTEP(epnum)->DOEPINT;
+
+        if (( gSNPSiD > USB_OTG_CORE_ID_300A ) &&  ((DoepintReg & USB_OTG_DOEPINT_STPKTRX) == USB_OTG_DOEPINT_STPKTRX))     //待理解
+  
+                CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_STPKTRX);      
+ 
+        //HAL_PCD_SetupStageCallback(hpcd);    //这里
+              USBD_LL_SetupStage( hpcd_USB_OTG_FS,  hpcd->Setup );
+
+
+---------
+
+
+数据流： hpcd_USB_OTG_FS->Setup -- hUsbDeviceFS->request 
+ USBD_LL_SetupStage(  *pdev,  *psetup)                                                //参数：hUsbDeviceFS  ,  hpcd_USB_OTG_FS->Setup[ ]
+ 
+        //USBD_ParseSetupRequest(&pdev->request, psetup);
+              hUsbDeviceFS->request  = hpcd_USB_OTG_FS->Setup;
+
+        pdev->ep0_state = USBD_EP0_SETUP;
+        pdev->ep0_data_len = pdev->request.wLength;
+
+        switch (pdev->request.bmRequest & 0x1FU)
+ 
+                case USB_REQ_RECIPIENT_DEVICE:
+
+                        ret = USBD_StdDevReq(pdev, &pdev->request);    //这里
+
+  
+-----------
+
+
+参数：hUsbDeviceFS  ,  hUsbDeviceFS->request
+USBD_StdDevReq( *pdev,   *req)
+  
+    switch (req->bmRequest & USB_REQ_TYPE_MASK) 
+
+                     ......(忽略) 
+
+        case USB_REQ_TYPE_STANDARD:
+
+            switch (req->bRequest)
+    
+                case USB_REQ_GET_DESCRIPTOR:
+
+                    USBD_GetDescriptor(pdev, req);       //这里 
+
+                     ......(忽略) 
+
+-------
+
+
+参数：hUsbDeviceFS  ,  hUsbDeviceFS->request
+USBD_GetDescriptor( *pdev,  *req)
+ 
+        uint16_t len = 0U;
+        uint8_t *pbuf = NULL;
+
+        switch (req->wValue >> 8)        
+ 
+                case USB_DESC_TYPE_DEVICE:
+                        pbuf = pdev->pDesc->GetDeviceDescriptor(pdev->dev_speed, &len);            //here                        
+
+                case USB_DESC_TYPE_CONFIGURATION:    //02
+           
+                                 ......(忽略) 
+                   
+                                //pbuf = pdev->pClass->GetFSConfigDescriptor(&len);                 //这里 
+                                //    pbuf = USBD_AUDIO_GetCfgDesc(&len);                
+                                           pbuf = USBD_AUDIO_CfgDesc;                
+
+                                pbuf[1] = USB_DESC_TYPE_CONFIGURATION;  
+
+                                 ......(忽略) 
+
+ 
+         if (req->wLength != 0)
+        
+                if (len != 0)
+                
+                        len = MIN(len, req->wLength);
+
+                        //USBD_CtlSendData(pdev, pbuf, len);
+                              USBD_CtlSendData(hUsbDeviceFS, USBD_AUDIO_CfgDesc, len);     //继续     //向usb端点0发送数据
+               
+                else                
+                        USBD_CtlError(pdev, req);
+        
+        else        
+                USBD_CtlSendStatus(pdev);
+        
+-----
+ 
+//把发送数至pc据存入到xfer_buff
+数据流： USBD_AUDIO_CfgDesc --  大epin->xfer_buff   
+USBD_CtlSendData( USBD_HandleTypeDef *pdev,  *pbuf,    len )         //参数： hUsbDeviceFS,  USBD_AUDIO_CfgDesc, CC
+ 
+        pdev->ep0_state = USBD_EP0_DATA_IN;
+        pdev->ep_in[0].total_length = len; 
+ 
+        pdev->ep_in[0].rem_length = len;   
+ 
+        //USBD_LL_Transmit(pdev, 0x00, pbuf, len);
+        //  HAL_PCD_EP_Transmit(hUsbDeviceFS->pData, ep_addr, pbuf, len);
+                HAL_PCD_EP_Transmit(hpcd_USB_OTG_FS, 0 , USBD_AUDIO_CfgDesc, LEN);      //把USBD_FS_DeviceDesc存入到  大epin->xfer_buff
+
+
+------------
+
+
+数据流： USBD_AUDIO_CfgDesc --  大epin->xfer_buff
+HAL_PCD_EP_Transmit( *hpcd,   ep_addr,   *pBuf,  len)      //参数： hpcd_USB_OTG_FS, 0 , USBD_AUDIO_CfgDesc, 0x12
+ 
+        PCD_EPTypeDef *ep;
+
+       //ep = &hpcd->IN_ep[ep_addr & EP_ADDR_MSK];
+           ep = &hpcd_USB_OTG_FS->IN_ep[0];
+ 
+        ep->xfer_buff = pBuf;                                // 数据流： USBD_AUDIO_CfgDesc --  大epin->xfer_buff
+        ep->xfer_len = len;                                     //=0x12
+        ep->xfer_count = 0;
+        ep->is_in = 1;                                                //1， 输入端点
+        ep->num = ep_addr & EP_ADDR_MSK;     //=0
+ 
+        if ((ep_addr & 0x0f) == 0)    //端点0
+ 
+                 //USB_EP0StartXfer(hpcd->Instance, ep, hpcd->Init.dma_enable);
+                    USB_EP0StartXfer( USB_OTG_FS, hpcd_USB_OTG_FS->IN_ep[0], 0);       //DIEPTSIZ设置 fifo数据包大小为1，总发送字节数量为0x12，
+                                                                                                                                                  DIEPCTL开启发送，DIEPEMPMSK使能fifo空中断
+
+        else  //play yes    //其他端点  （pc播放音乐端点）
+ 
+                USB_EPStartXfer(hpcd->Instance, ep, hpcd->Init.dma_enable);
+
+ ---
+
+//DIEPTSIZ设置 fifo数据包大小为1，总发送字节数量为0x12，DIEPCTL开启发送，DIEPEMPMSK使能fifo空中断
+USB_EP0StartXfer(  *USBx,  *ep, dma)        //参数： USB_OTG_FS, hpcd_USB_OTG_FS->IN_ep[0], 0
+ 
+        USBx_BASE =  USBx;
+        epnum = ep->num;
+
+        if (ep->is_in == 1 )        //yes
+        
+                 if (ep->xfer_len == 0 )  //0x12  //no                 
+                        ......忽略
+                 
+                else    //yes
+                 
+                        USBx_INEP(epnum)->DIEPTSIZ &= ~(USB_OTG_DIEPTSIZ_XFRSIZ);     //清零DIEPTSIZ.6-0 
+                        USBx_INEP(epnum)->DIEPTSIZ &= ~(USB_OTG_DIEPTSIZ_PKTCNT);    //清零DIEPTSIZ.20-19 
+
+                        if (ep->xfer_len > ep->maxpacket)            //no       
+                                 ......忽略
+                         
+                        USBx_INEP(epnum)->DIEPTSIZ |= (USB_OTG_DIEPTSIZ_PKTCNT & (1 << 19));          //DIEPTSIZ.20-19=1,  fifo数据包大小
+                        USBx_INEP(epnum)->DIEPTSIZ |= (USB_OTG_DIEPTSIZ_XFRSIZ & ep->xfer_len);       //DIEPTSIZ.6-0=0x12，总发送字节数量
+                
+
+                if  ( dma  ==  1  )                 
+                      （......忽略）
+                else
+                
+                        USBx_INEP(epnum)->DIEPCTL |= (USB_OTG_DIEPCTL_CNAK | USB_OTG_DIEPCTL_EPENA);   //DIEPCTL0.31,26=1,1, 开启发送, 并清NAK
+
+                        if (ep->xfer_len > 0 )       //yes                         
+                                USBx_DEVICE->DIEPEMPMSK |= 1 << (ep->num & 0x0F);     //DIEPEMPMSK.0=1, 使能fifo空中断 （即发送完成）
+                        
+ 
+
+
+=====================USB 设备描述符初始化====把设备描述符的到 大epin->xfer_buff发送给fifo到pc===============
+
+ 
+      flow3： 把设备描述符的到 大epin->xfer_buff 发送给fifo到pc
+
+      HAL_PCD_IRQHandler -- (从机模式 -- 有输入端点的中断  -- DAINT有输出端入中断  )  --  PCD_WriteEmptyTxFifo  -- USB_WritePacket
+
+      数据流：大epin->xfer_buff  -- FIFO
+ 
+
+---------------------------------------------------------------------------
+
+                        ......忽略（同01.txt）
+
+
+
+
+
+
+
+===========================================参考======keep========================================
+
+
+
+
+ USBD_AUDIO_Setup  过程：
+
+flow:  发送usb配置符USBD_AUDIO_ConfigDescriptor到主机PC  之二
+
+      HAL_PCD_SetupStageCallback  -- USBD_LL_SetupStage -- USBD_StdItfReq  -- (pdev->pClass->Setup) -- USBD_AUDIO_Setup -- USBD_CtlSendData 
+
+     数据流： hpcd_USB_OTG_FS->Setup -- hUsbDeviceFS->request   
+      数据流： USBD_AUDIO_CfgDesc -- ep0 （IN）
+
+ 
+
+----------------------------------------------- USBD_AUDIO_Setup  过程 ---------------------------------------------------
+
+flow:  发送usb配置符USBD_AUDIO_ConfigDescriptor到主机PC 之二
+
+     OTG_FS_IRQHandler -- HAL_PCD_IRQHandler -- PCD_EP_OutSetupPacket_int -- HAL_PCD_SetupStageCallback -- USBD_LL_SetupStage  （相同）
+
+     -- USBD_StdItfReq(不同点)  -- (pdev->pClass->Setup) -- USBD_AUDIO_Setup -- USBD_CtlSendData 
+
+      数据流： hpcd_USB_OTG_FS->Setup -- hUsbDeviceFS->request 
+      数据流： USBD_AUDIO_CfgDesc -- ep0 （IN）
+
+-----------------------------------
+
+参数：hpcd_USB_OTG_FS
+HAL_PCD_SetupStageCallback( *hpcd)
+ 
+        USBD_LL_SetupStage( hpcd->pData,  hpcd->Setup);
+ 
+
+数据流： hpcd_USB_OTG_FS->Setup -- hUsbDeviceFS->request 
+USBD_LL_SetupStage( *pdev,   *psetup)        //参数：hUsbDeviceFS  ,  hpcd_USB_OTG_FS->Setup[ ]
+ 
+        //USBD_ParseSetupRequest(&pdev->request, psetup);
+              hUsbDeviceFS->request  = hpcd_USB_OTG_FS->Setup;
+
+        pdev->ep0_state = USBD_EP0_SETUP;
+        pdev->ep0_data_len = pdev->request.wLength;
+
+        switch ( pdev->request.bmRequest & 0x1F )
+      
+                case USB_REQ_RECIPIENT_DEVICE:
+                        ret = USBD_StdDevReq(pdev, &pdev->request);     //相关：另一路
+ 
+                case USB_REQ_RECIPIENT_INTERFACE:
+                        ret = USBD_StdItfReq(pdev, &pdev->request);        //这里
+ 
+
+参数： hpcd_USB_OTG_FS， hUsbDeviceFS->request 
+ USBD_StdItfReq(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *req)
+ 
+        USBD_StatusTypeDef ret = USBD_OK;
+
+        switch (req->bmRequest & USB_REQ_TYPE_MASK)
+     
+                case USB_REQ_TYPE_CLASS:
+                case USB_REQ_TYPE_VENDOR:
+
+                case USB_REQ_TYPE_STANDARD:
+
+                        switch (pdev->dev_state)
+                      
+                                case USBD_STATE_DEFAULT:
+                                case USBD_STATE_ADDRESSED:
+                                case USBD_STATE_CONFIGURED:
+
+                                        if (LOBYTE(req->wIndex) <= USBD_MAX_NUM_INTERFACES)
+                                        
+                                                //ret =  pdev->pClass->Setup(pdev, req);      //这里
+                                                    USBD_AUDIO_Setup (pdev, req);
+
+                                                if ((req->wLength == 0U) && (ret == USBD_OK))
+                                                
+                                                         USBD_CtlSendStatus(pdev);
+                                
+             
+参数：
+USBD_AUDIO_Setup (USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *req)
+
+        uint8_t *pbuf;
+ 
+        USBD_AUDIO_HandleTypeDef     *haudio;
+        haudio =  pdev->pClassData;
+        
+        switch (req->bmRequest & USB_REQ_TYPE_MASK)    //0x60
+                 
+            case USB_REQ_TYPE_STANDARD:  //0x00
+
+                  switch (req->bRequest)
+            
+                      case USB_REQ_GET_DESCRIPTOR:         //0x06
+               
+                            if( (req->wValue >> 8) == USBD_AUDIO_DESC_TYPE_CS_DEVICE)
+                      
+                                    pbuf = USBD_AUDIO_CfgDesc + 18;                                                      //这里
+                                    len = MIN(USBD_AUDIO_DESC_SIZ , req->wLength);
+                                
+                                    USBD_CtlSendData (pdev,   pbuf,    len);
+                      
+
+ -----
+
+//向usb端点0发送数据
+数据流： USBD_AUDIO_CfgDesc -- ep0 （IN）
+USBD_CtlSendData( USBD_HandleTypeDef *pdev,  *pbuf,    len )         //参数： hUsbDeviceFS,  USBD_AUDIO_CfgDesc
+ 
+        pdev->ep0_state = USBD_EP0_DATA_IN;
+        pdev->ep_in[0].total_length = len; 
+ 
+        pdev->ep_in[0].rem_length = len;   
+ 
+        //USBD_LL_Transmit(pdev, 0x00U, pbuf, len);
+                HAL_PCD_EP_Transmit(pdev->pData, ep_addr, pbuf, size);
+
+     
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+=================================参考=============================================
+  
+
+ 
+===================USB 参数初始化============= 
+ 
+
+flow：  参数初始化
+
+StartDefaultTask -- ( Usb.update ) -- InterfaceUsbUpdate -- ( Usb.init ) -- MX_USB_DEVICE_Init 
+MX_USB_DEVICE_Init -- USBD_Init -- USBD_LL_Init -- hpcd_USB_OTG_FS
+MX_USB_DEVICE_Init -- USBD_RegisterClass => hUsbDeviceFS->pClass = USBD_AUDIO_CLASS = USBD_AUDIO
+
+-----------------------------------------------
+
+StartDefaultTask
+
+     while(1)
+        Usb.update();
+
+-----
+
+ struct   hal_usb_s    Usb = 
+
+      .init = &MX_USB_DEVICE_Init,
+      .update = &InterfaceUsbUpdate, 
+
+              .......(忽略)          
+ 
+-------------------------------
+
+ InterfaceUsbUpdate( )
+ 
+    if(isVbusHigh())  //USB port PLUGGED
+  
+        if (UsbGetState() == USB_DISCONNECTED)  
+            Usb.init(usb_rx_callback_circular_buf);        //待理解，这里的参数usb_rx_callback_circular_buf是一个函数，为什么没传入它自己的两个参数*prt和len
+            UsbSetState(USB_CONNECTED);
+ 
+              .......(忽略)          
+     
+
+---------------
+
+
+参数为一个函数： usb_rx_callback_circular_buf        //待理解，为什么没传入它自己的两个参数*prt和len
+ MX_USB_DEVICE_Init(   rx_callback (  *ptr,   len) )
+
+        GPIO_InitTypeDef    GPIO_InitStruct;
+
+        /*Configure GPIO pin : USB_PowerSwitchOn_Pin */
+        GPIO_InitStruct.Pin     = USB_PowerSwitchOn_Pin;
+        GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+        GPIO_InitStruct.Pull    = GPIO_NOPULL;
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+        HAL_GPIO_Init(USB_PowerSwitchOn_GPIO_Port, &GPIO_InitStruct);
+
+        /*Configure GPIO pin : USB_OverCurrent_Pin */
+        GPIO_InitStruct.Pin     = USB_OverCurrent_Pin;
+        GPIO_InitStruct.Mode    = GPIO_MODE_INPUT;
+        GPIO_InitStruct.Pull    = GPIO_NOPULL;
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+        HAL_GPIO_Init(USB_OverCurrent_GPIO_Port, &GPIO_InitStruct);
+
+        /*Configure GPIO pin Output Level */
+        HAL_GPIO_WritePin(USB_PowerSwitchOn_GPIO_Port, USB_PowerSwitchOn_Pin, GPIO_PIN_RESET);
+
+
+        /* Init Device Library,Add Supported Class and Start the library*/
+        USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS);
+
+         USBD_RegisterClass(&hUsbDeviceFS, USBD_AUDIO_CLASS);       //设置hUsbDeviceFS->pClass = USBD_AUDIO_CLASS
+
+        /* Add Interface callbacks for AUDIO Class */
+        USBD_AUDIO_RegisterInterface(&hUsbDeviceFS, &audio_class_interface);    //先考虑跳过
+
+        /* Start Device Process */
+        USBD_Start(&hUsbDeviceFS);    //先考虑跳过
+ );
+
+
+----------------
+
+参数：hUsbDeviceFS ， USBD_AUDIO_CLASS
+USBD_RegisterClass(  *pdev,  *pclass)
+ 
+    pdev->pClass = pclass;    //连接hUsbDeviceFS->pClass = USBD_AUDIO_CLASS
+
+     if (pdev->pClass->GetFSConfigDescriptor != NULL)
+ 
+          pdev->pConfDesc = (void *)pdev->pClass->GetFSConfigDescriptor(&len);   // Get Device Configuration Descriptor 
+  
+ 
+
+ 
+-------------------------------------
+ 
+
+设置pdev参数1/2
+数据： pdev -- hUsbDeviceFS
+
+USBD_Init(  *pdev,   *pdesc,  id)
+ 
+    USBD_StatusTypeDef ret;
+
+    /* Check whether the USB Host handle is valid */
+    if (pdev == NULL) 
+        return USBD_FAIL; 
+
+    /* Unlink previous class resources */
+    pdev->pClass = NULL;
+    pdev->pUserData = NULL;
+    pdev->pConfDesc = NULL;
+
+    /* Assign USBD Descriptors */
+    if (pdesc != NULL)
+        pdev->pDesc = pdesc; 
+
+    /* Set Device initial State */
+    pdev->dev_state = USBD_STATE_DEFAULT;
+    pdev->id = id;
+
+    /* Initialize low level driver */
+    ret = USBD_LL_Init(pdev);
+
+ 
+---------------
+
+设置pdev参数2/2，hpcd_USB_OTG_FS 参数1/1
+
+功能： 初始化hpcd_USB_OTG_FS， 及连接pdev
+数据： pdev -- ？
+
+USBD_LL_Init( *pdev)
+ 
+        if (pdev->id == DEVICE_FS)
+ 
+                /* Link The driver to the stack */
+                hpcd_USB_OTG_FS.pData = pdev;
+                pdev->pData                     = &hpcd_USB_OTG_FS;
+
+                hpcd_USB_OTG_FS.Instance = USB_OTG_FS;
+ 
+                hpcd_USB_OTG_FS.Init.dev_endpoints = 5;
+                hpcd_USB_OTG_FS.Init.ep0_mps             = 0x40;
+                hpcd_USB_OTG_FS.Init.Sof_enable        = ENABLE;
+ 
+                hpcd_USB_OTG_FS.Init.speed                             = PCD_SPEED_FULL;
+                hpcd_USB_OTG_FS.Init.dma_enable                    = DISABLE;
+                hpcd_USB_OTG_FS.Init.phy_itface                    = PCD_PHY_EMBEDDED;
+                hpcd_USB_OTG_FS.Init.low_power_enable        = DISABLE;
+                hpcd_USB_OTG_FS.Init.lpm_enable                    = DISABLE;
+                hpcd_USB_OTG_FS.Init.vbus_sensing_enable = ENABLE;
+                hpcd_USB_OTG_FS.Init.use_dedicated_ep1     = DISABLE;
+
+                HAL_PCD_Init(&hpcd_USB_OTG_FS)  ;
+ 
+                USBD_LL_Setup_Fifo();  //--待理解
+
+---------
+
+
+//--待理解
+ USBD_LL_Setup_Fifo( )
+ 
+    uint16_t tx_fifo_size[5]   = {0}; /* TX_FIFO allocation*/
+    uint8_t max_tx_ep_num      = 0;   /* The Max TX_EP_NUMBER*/
+    uint16_t tx_fifo_used_size = 0;   /* total usage of TX_FIFO*/
+    uint16_t rx_fifo_size      = 0;   /* total usage of RX_FIFO*/
+
+    /* rx_fifo_size = (5 * number of control endpoints + 8) + ((largest USB packet used / 4) + 1 for status information) +
+                    (2 * number of OUT endpoints) + 1 for Global NAK*/
+ 
+    rx_fifo_size = (USBD_AUDIO_CONFIG_PLAY_MAX_PACKET_SIZE > 64) ? (USBD_AUDIO_CONFIG_PLAY_MAX_PACKET_SIZE + 3U) / 4 : 16;
+   
+    tx_fifo_used_size = (USB_AUDIO_GetConfigDescriptor(0) + 3) / 4;
+    tx_fifo_size[0]   = tx_fifo_used_size;
+
+    for (int i = 1; i <= max_tx_ep_num; i++)
+   
+        if (tx_fifo_size[i] < 16)       
+            tx_fifo_size[i] = 16;
+      
+        tx_fifo_used_size += tx_fifo_size[i];    
+
+    rx_fifo_size += (5 * 1 /*number of control endpoints*/ + 8
+                     + 1 /* for status information*/ + 2 * 6 /*number of OUT endpoints*/ + 1 /*for Global NAK*/);
+
+    if (tx_fifo_used_size + rx_fifo_size <= USB_FIFO_WORD_SIZE) 
+        rx_fifo_size = USB_FIFO_WORD_SIZE - tx_fifo_used_size; 
+   
+    else     
+        _Error_Handler(__FILE__, __LINE__);
+ 
+
+    //HAL_PCDEx_SetRxFiFo(&hpcd_USB_OTG_FS, rx_fifo_size);
+           hpcd_USB_OTG_FS->Instance->GRXFSIZ = size;
+
+    for (int i = 0; i <= max_tx_ep_num; i++)  
+          HAL_PCD_SetTxFiFo(&hpcd_USB_OTG_FS, i, tx_fifo_size[i]);
+ 
+ 
+ 
+------
+
+
+HAL_PCD_Init( *hpcd)
+ 
+    USB_OTG_GlobalTypeDef *USBx;
+    uint8_t i;
+
+     USBx = hpcd->Instance;    //USB_OTG_FS
+
+    if (hpcd->State == HAL_PCD_STATE_RESET)
+ 
+        /* Allocate lock resource and initialize it */
+        hpcd->Lock = HAL_UNLOCKED;
+ 
+        /* Init the low level hardware : GPIO, CLOCK, NVIC... */
+        HAL_PCD_MspInit(hpcd); 
+
+    hpcd->State = HAL_PCD_STATE_BUSY;
+
+    /* Disable DMA mode for FS instance */
+    if ((USBx->CID & (0x1U << 8)) == 0U)
+        hpcd->Init.dma_enable = 0U;   
+
+    /* Disable the Interrupts */
+    __HAL_PCD_DISABLE(hpcd);
+
+    /*Init the Core (common init.) */
+    if (USB_CoreInit(hpcd->Instance, hpcd->Init) != HAL_OK)
+        hpcd->State = HAL_PCD_STATE_ERROR;
+        return HAL_ERROR; 
+
+    /* Force Device Mode*/
+    USB_SetCurrentMode(hpcd->Instance, USB_DEVICE_MODE);
+
+    /* Init endpoints structures */
+    for (i = 0U; i < hpcd->Init.dev_endpoints; i++)
+ 
+        /* Init ep structure */
+        hpcd->IN_ep[i].is_in = 1U;
+        hpcd->IN_ep[i].num = i;
+        hpcd->IN_ep[i].tx_fifo_num = i;
+        /* Control until ep is activated */
+        hpcd->IN_ep[i].type = EP_TYPE_CTRL;
+        hpcd->IN_ep[i].maxpacket = 0U;
+        hpcd->IN_ep[i].xfer_buff = 0U;
+        hpcd->IN_ep[i].xfer_len = 0U;    
+
+    for (i = 0U; i < hpcd->Init.dev_endpoints; i++)
+ 
+        hpcd->OUT_ep[i].is_in = 0U;
+        hpcd->OUT_ep[i].num = i;
+        /* Control until ep is activated */
+        hpcd->OUT_ep[i].type = EP_TYPE_CTRL;
+        hpcd->OUT_ep[i].maxpacket = 0U;
+        hpcd->OUT_ep[i].xfer_buff = 0U;
+        hpcd->OUT_ep[i].xfer_len = 0U; 
+
+    /* Init Device */
+     USB_DevInit(hpcd->Instance, hpcd->Init)  
+ 
+    hpcd->USB_Address = 0U;
+    hpcd->State = HAL_PCD_STATE_READY;
+    USB_DevDisconnect(hpcd->Instance);
+
+
+
+================================USB  启动=============================================
+
+flow：  参数初始化
+
+StartDefaultTask -- ( Usb.update ) -- InterfaceUsbUpdate -- ( Usb.init ) -- MX_USB_DEVICE_Init 
+MX_USB_DEVICE_Init -- USBD_Init -- USBD_LL_Init -- hpcd_USB_OTG_FS
+MX_USB_DEVICE_Init -- USBD_RegisterClass => hUsbDeviceFS->pClass = USBD_AUDIO_CLASS = USBD_AUDIO
+
+
+flow：  usb启动
+
+StartDefaultTask -- ( Usb.update ) -- InterfaceUsbUpdate -- ( Usb.init ) -- MX_USB_DEVICE_Init 
+ MX_USB_DEVICE_Init -- USBD_Init -- USBD_RegisterClass -- USBD_AUDIO_RegisterInterface -- USBD_Start
+
+
+
+---------------------------------------------
+
+ MX_USB_DEVICE_Init(void(*rx_callback)(uint8_t *ptr, size_t len))
+
+        ......(忽略)
+
+      /* Init Device Library,Add Supported Class and Start the library*/
+     // USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS); 
+               hUsbDeviceFS->id =    DEVICE_FS;   //0
+                hUsbDeviceFS->pData  = &hpcd_USB_OTG_FS;
+
+                hpcd_USB_OTG_FS.pData = hUsbDeviceFS;
+                hpcd_USB_OTG_FS.Instance = USB_OTG_FS;    //FS寄存器地址
+                ...... (忽略)
+
+
+ 
+      //USBD_RegisterClass(&hUsbDeviceFS, USBD_AUDIO_CLASS);
+                hUsbDeviceFS->pClass = USBD_AUDIO_CLASS；   //等于USBD_AUDIO
+
+      /* Add Interface callbacks for AUDIO Class */
+      //USBD_AUDIO_RegisterInterface(&hUsbDeviceFS, &audio_class_interface);
+          hUsbDeviceFS->pUserData= audio_class_interface;
+          //aifc->GetConfigDesc(&USBD_AUDIO_CfgDesc, &USBD_AUDIO_CfgDescSize,   aifc->private_data);       //AUDIO_USB_GetConfigDesc
+                      USBD_AUDIO_CfgDesc = USBD_AUDIO_ConfigDescriptor;
+                       USBD_AUDIO_CfgDescSize = CONFIG_DESCRIPTOR_SIZE ;
+
+
+      //USBD_Start(&hUsbDeviceFS);
+      //     USBD_LL_Start(pdev);
+                       HAL_PCD_Start(pdev->pData);   //hUsbDeviceFS->pData  = &hpcd_USB_OTG_FS
+
+----------------
+
+参看RAM数据手册1267页
+参数： hpcd_USB_OTG_FS
+HAL_PCD_Start(    *hpcd)
+ 
+    *USBx = hpcd->Instance;       //USB_OTG_FS,   寄存器地址
+
+    if ((hpcd->Init.battery_charging_enable == 1) &&   (hpcd->Init.phy_itface != USB_OTG_ULPI_PHY)) 
+         USBx->GCCFG |= USB_OTG_GCCFG_PWRDWN;         //OTG_FS_GCCFG.16=1, 使能 USB Transceiver  
+
+    //__HAL_PCD_ENABLE(hpcd);
+    //       USB_EnableGlobalInt (hpcd->Instance);
+    //                 USB_EnableGlobalInt (USBx);
+                                 USBx->GAHBCFG |= USB_OTG_GAHBCFG_GINT;   //GAHBCFG.0=1,   开usb中断
+
+
+     //USB_DevConnect(hpcd->Instance);
+     //           USB_DevConnect (USBx);
+                           USBx_PCGCCTL &= ~(1<<0  | 1<<1);   //PCGCCTL.1-0=11，关于USB被挂起时，HCLK选通到从机，及停止PHY时钟  --待理解
+                           USBx_DEVICE->DCTL &= ~USB_OTG_DCTL_SDIS;      //1268页，DCTL.1=1, 关于软件 disconnect  --待理解
+     
+
+
+
+================================USB  init 初始化=============================================
+
+flow：  参数初始化
+
+StartDefaultTask -- ( Usb.update ) -- InterfaceUsbUpdate -- ( Usb.init ) -- MX_USB_DEVICE_Init  
+MX_USB_DEVICE_Init -- USBD_Init -- USBD_LL_Init -- hpcd_USB_OTG_FS 
+MX_USB_DEVICE_Init -- USBD_RegisterClass => hUsbDeviceFS->pClass = USBD_AUDIO_CLASS = USBD_AUDIO 
+
+
+flow：  usb初始化
+
+OTG_FS_IRQHandler -- (hpcd_USB_OTG_FS) -- HAL_PCD_IRQHandler -- PCD_EP_OutSetupPacket_int -- HAL_PCD_SetupStageCallback 
+(hpcd_USB_OTG_FS->pData ) --  (hUsbDeviceFS, 即pdev) -- USBD_LL_SetupStage -- USBD_StdDevReq -- USBD_SetConfig -- USBD_SetClassConfig -- (pdev->pClass->Init) 
+  -- USBD_AUDIO_Init --  (aud_if_cbks->Init) -- AUDIO_USB_Init
+
+
+----------------------------------------------------------------------------------
+
+ OTG_FS_IRQHandler( )
+ 
+        HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS);
+
+
+--------------
+
+
+//usb中断  （或插拔中断）
+
+数据： hpcd -- hpcd_USB_OTG_FS
+
+HAL_PCD_IRQHandler( *hpcd)
+ 
+        USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;
+        uint32_t USBx_BASE = (uint32_t)USBx;
+        uint32_t i, ep_intr, epint, epnum;
+        uint32_t fifoemptymsk, temp;
+        USB_OTG_EPTypeDef *ep;
+
+        /* ensure that we are in device mode */
+        if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)     
+
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_MMIS))
+                        __HAL_PCD_CLEAR_FLAG(hpcd, USB_OTG_GINTSTS_MMIS);            
+
+                /* Handle RxQLevel Interrupt */
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_RXFLVL))
+               
+                        USB_MASK_INTERRUPT(hpcd->Instance, USB_OTG_GINTSTS_RXFLVL);
+                        temp = USBx->GRXSTSP;
+
+                        ep = &hpcd->OUT_ep[temp & USB_OTG_GRXSTSP_EPNUM];
+
+                        if (((temp & USB_OTG_GRXSTSP_PKTSTS) >> 17) ==        STS_DATA_UPDT)
+                       
+                                if ((temp & USB_OTG_GRXSTSP_BCNT) != 0U)
+                                
+                                        USB_ReadPacket(USBx, ep->xfer_buff,  ((temp & USB_OTG_GRXSTSP_BCNT) >> 4));
+
+                                        ep->xfer_buff += (temp & USB_OTG_GRXSTSP_BCNT) >> 4;
+                                        ep->xfer_count += (temp & USB_OTG_GRXSTSP_BCNT) >> 4;
+                                
+                        
+                        else if (((temp & USB_OTG_GRXSTSP_PKTSTS) >> 17) ==  STS_SETUP_UPDT)
+                         
+                               USB_ReadPacket(USBx, (uint8_t *)hpcd->Setup, 8U);
+                                ep->xfer_count += (temp & USB_OTG_GRXSTSP_BCNT) >> 4;
+                        
+                        else
+                           ； 
+
+                        USB_UNMASK_INTERRUPT(hpcd->Instance, USB_OTG_GINTSTS_RXFLVL);
+             
+
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_OEPINT))
+                
+                        epnum = 0U;
+
+                        /* Read in the device interrupt bits */
+                        ep_intr = USB_ReadDevAllOutEpInterrupt(hpcd->Instance);
+
+                        while (ep_intr != 0U)
+                        
+                                if ((ep_intr & 0x1U) != 0U)
+                                
+                                        epint = USB_ReadDevOutEPInterrupt(hpcd->Instance, (uint8_t)epnum);
+
+                                        if ((epint & USB_OTG_DOEPINT_XFRC) == USB_OTG_DOEPINT_XFRC)
+                                         
+                                                CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_XFRC);
+                                                 PCD_EP_OutXfrComplete_int(hpcd, epnum);
+                                         
+
+                                        if ((epint & USB_OTG_DOEPINT_STUP) == USB_OTG_DOEPINT_STUP)
+                                         
+                                                CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_STUP);
+                                                /* Class B setup phase done for previous decoded setup */
+                                                 PCD_EP_OutSetupPacket_int(hpcd, epnum);                                    //这里
+                                         
+
+                                        if ((epint & USB_OTG_DOEPINT_OTEPDIS) == USB_OTG_DOEPINT_OTEPDIS)
+                                         
+                                                CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_OTEPDIS);
+                                        
+
+                                        /* Clear Status Phase Received interrupt */
+                                        if ((epint & USB_OTG_DOEPINT_OTEPSPR) == USB_OTG_DOEPINT_OTEPSPR)
+                                        
+                                                CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_OTEPSPR);
+                                      
+
+                                        /* Clear OUT NAK interrupt */
+                                        if ((epint & USB_OTG_DOEPINT_NAK) == USB_OTG_DOEPINT_NAK)
+                                         
+                                                CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_NAK);
+                                        
+                                
+                                epnum++;
+                                ep_intr >>= 1U;
+                      
+              .......(忽略)               
+
+
+
+
+-----------------------
+
+
+数据： hpcd --？
+ 
+PCD_EP_OutSetupPacket_int( *hpcd,   epnum)
+ 
+    USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;
+    uint32_t USBx_BASE = USBx;
+    uint32_t gSNPSiD = *(&USBx->CID + 1);
+    uint32_t DoepintReg = USBx_OUTEP(epnum)->DOEPINT;
+
+    if ((gSNPSiD > USB_OTG_CORE_ID_300A) &&
+            ((DoepintReg & USB_OTG_DOEPINT_STPKTRX) == USB_OTG_DOEPINT_STPKTRX))
+     
+        CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_STPKTRX); 
+ 
+ 
+    HAL_PCD_SetupStageCallback(hpcd);    //Inform the upper layer that a setup packet is available  
+
+    if ((gSNPSiD > USB_OTG_CORE_ID_300A) && (hpcd->Init.dma_enable == 1U))   
+         USB_EP0_OutStart(hpcd->Instance, 1U,  hpcd->Setup);
+  
+
+-------------------------
+
+数据： hpcd --？
+HAL_PCD_SetupStageCallback(  *hpcd)
+ 
+    USBD_LL_SetupStage(  hpcd->pData,  hpcd->Setup );
+ 
+
+-----------------
+
+数据： pdev --  hpcd->pData
+ USBD_LL_SetupStage( *pdev,   *psetup)
+ 
+    USBD_ParseSetupRequest(&pdev->request, psetup);
+    pdev->ep0_state = USBD_EP0_SETUP;
+    pdev->ep0_data_len = pdev->request.wLength;
+
+    switch (pdev->request.bmRequest & 0x1FU)
+ 
+        case USB_REQ_RECIPIENT_DEVICE:
+            ret = USBD_StdDevReq(pdev, &pdev->request);
+            break;
+
+            .......(忽略)
+
+        default:
+            ret = USBD_LL_StallEP(pdev, (pdev->request.bmRequest & 0x80U));
+            break;
+   
+---
+
+数据： pdev --  ？
+USBD_StdDevReq( *pdev,    *req )
+ 
+    switch (req->bmRequest & USB_REQ_TYPE_MASK)
+ 
+        case USB_REQ_TYPE_STANDARD:
+            switch (req->bRequest)
+ 
+            .......(忽略)
+
+                case USB_REQ_SET_CONFIGURATION:
+                    ret = USBD_SetConfig(pdev, req);                   //这里
+                    break;
+
+                 .......(忽略)
+
+                default:
+                    USBD_CtlError(pdev, req);
+                    break;
+            }
+            break;
+
+        default:
+            USBD_CtlError(pdev, req);
+            break;
+
+-----------------
+
+数据： pdev --  ？
+USBD_SetConfig(    *pdev,    *req)
+ 
+    cfgidx =  (req->wValue);
+
+    if (cfgidx > USBD_MAX_NUM_CONFIGURATION)    //1
+ 
+        USBD_CtlError(pdev, req);
+        return USBD_FAIL; 
+
+    switch (pdev->dev_state)
+ 
+        case USBD_STATE_ADDRESSED:
+
+            if (cfgidx != 0U)           
+                pdev->dev_config = cfgidx;
+                ret = USBD_SetClassConfig(pdev, cfgidx);
+                if (ret != USBD_OK)                
+                    USBD_CtlError(pdev, req);
+                
+                else                
+                     USBD_CtlSendStatus(pdev);
+                     pdev->dev_state = USBD_STATE_CONFIGURED;                
+           
+            else            
+                    USBD_CtlSendStatus(pdev);
+            
+            break;
+
+        case USBD_STATE_CONFIGURED:
+
+           ......  (忽略)
+
+            break;
+
+        default:
+            USBD_CtlError(pdev, req);
+            USBD_ClrClassConfig(pdev, cfgidx);
+            ret = USBD_FAIL;
+            break;
+ 
+ 
+-------------------------------------------------------------------------
+
+
+StartDefaultTask(void const *argument)
+
+     Usb.update();
+
+
+-----
+
+const struct hal_usb_s Usb = 
+{
+        .update = &InterfaceUsbUpdate,
+     ......
+};
+
+---
+
+InterfaceUsbUpdate( ) 
+
+        if(isVbusHigh())        //USB port PLUGGED 
+                if (UsbGetState() == USB_DISCONNECTED)         
+                        Usb.init(usb_rx_callback_circular_buf);
+
+---
+
+const struct hal_usb_s Usb = 
+{
+    .init = &MX_USB_DEVICE_Init,
+
+     ......
+};
+
+----------------------
+ 
+ 
+#define USBD_AUDIO_CLASS    &USBD_AUDIO
+
+MX_USB_DEVICE_Init(     void(*rx_callback)(  *ptr,   len)        )
+
+      USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS);
+
+      //USBD_RegisterClass(&hUsbDeviceFS, USBD_AUDIO_CLASS);
+            hUsbDeviceFS->pClass = USBD_AUDIO_CLASS;
+ 
+
+ ------------
+
+
+
+数据： pdev --  ？
+USBD_SetClassConfig(  *pdev,  cfgidx)
+
+        if (pdev->pClass != NULL)
+                dev->pClass->Init(pdev, cfgidx）；
+
+ 
+------
+
+
+数据： pdev --  hUsbDeviceFS
+USBD_AUDIO_Init (   *pdev,    cfgidx)          
+
+        USBD_AUDIO_HandleTypeDef   *haudio;
+        USBD_AUDIO_InterfaceCallbacksfTypeDef   * aud_if_cbks;
+        
+        //haudio = USBD_malloc(sizeof (USBD_AUDIO_HandleTypeDef));    //haudio指向mem[]
+            haudio=mem[0];
+
+            memset(haudio, 0, all );
+
+            aud_if_cbks =  pdev->pUserData;    //等于audio_class_interface
+             
+            //aud_if_cbks->Init(&haudio->aud_function, aud_if_cbks->private_data)；        //Initialize the Audio output Hardware layer 
+            //   aud_if_cbks->Init(&haudio->aud_function, 0)；  
+                   AUDIO_USB_Init(&haudio->aud_function, 0)；   
+       
+         pdev->pClassData = haudio;
+
+ 
+
+-----------------
+
+参数： haudio->aud_function, 0
+AUDIO_USB_Init( * usb_audio_class_function ,  private_data)
+ 
+  int interface_offset=0, total_control_count=0;
+  uint8_t control_count = 0;
+ 
+   /* Initializes the USB play session */
+  AUDIO_PlaybackSessionInit(  &usb_audio_class_function->as_interfaces[interface_offset],  &(usb_audio_class_function->controls[interface_offset]), 
+                                                      &control_count,   &USB_AudioPlabackSession);
+
+  interface_offset++;
+  total_control_count += control_count;
+  
+  usb_audio_class_function->as_interfaces_count = interface_offset;
+  usb_audio_class_function->control_count = total_control_count;
+ 
+ 
+
+
+
+
+================================USB  out=============================================
+
+flow：  参数初始化
+
+StartDefaultTask -- ( Usb.update ) -- InterfaceUsbUpdate -- ( Usb.init ) -- MX_USB_DEVICE_Init 
+MX_USB_DEVICE_Init -- USBD_Init -- USBD_LL_Init -- hpcd_USB_OTG_FS
+MX_USB_DEVICE_Init -- USBD_RegisterClass => hUsbDeviceFS->pClass = USBD_AUDIO_CLASS = USBD_AUDIO
+
+
+flow：  usb初始化
+
+OTG_FS_IRQHandler -- (hpcd_USB_OTG_FS) -- HAL_PCD_IRQHandler -- PCD_EP_OutSetupPacket_int -- HAL_PCD_SetupStageCallback 
+(hpcd_USB_OTG_FS->pData ) --  (hUsbDeviceFS, 即pdev) -- USBD_LL_SetupStage -- USBD_StdDevReq -- USBD_SetConfig -- USBD_SetClassConfig -- (pdev->pClass->Init) --USBD_AUDIO -- USBD_AUDIO_Init --  AUDIO_USB_Init
+
+
+flow:        (out)
+
+        OTG_FS_IRQHandler -- HAL_PCD_IRQHandler  --  PCD_EP_OutXfrComplete_int -- HAL_PCD_DataOutStageCallback -- USBD_LL_DataOutStage -- ( pdev->pClass->DataOut ) -- USBD_AUDIO_DataOut
+
+
+---------------------------------------------------------------------------------------------
+
+
+ HAL_PCD_DataOutStageCallback( *hpcd,  epnum)
+ 
+      USBD_LL_DataOutStage( hpcd->pData, epnum, hpcd->OUT_ep[epnum].xfer_buff);
+ 
+
+-----------
+ 
+
+USBD_LL_DataOutStage(    *pdev, epnum,     *pdata)
+ 
+        USBD_StatusTypeDef ret;
+
+        if (epnum == 0U)
+
+                   ......  //seems nouse 
+
+        else
+      
+                if (pdev->dev_state == USBD_STATE_CONFIGURED)
+                
+                        if (pdev->pClass->DataOut != NULL)
+                       
+                                ret = (USBD_StatusTypeDef)pdev->pClass->DataOut(pdev, epnum);       //这里
+
+                                if (ret != USBD_OK)                                 
+                                        return ret;
+                       
+ 
+-------------
+
+
+USBD_AUDIO_DataOut (   *pdev,    epnum)              
+        
+        USBD_AUDIO_EPTypeDef * ep;
+        uint8_t *pbuf ;
+        uint16_t packet_length;
+
+
+        ep=&((USBD_AUDIO_HandleTypeDef*) pdev->pClassData)->ep_out[epnum];
+
+        if(ep->open)
+        {
+                /* get received length */
+                packet_length = USBD_LL_GetRxDataSize(pdev, epnum);
+
+                /* inform user about data reception        */
+                ep->ep_description.data_ep->DataReceived(packet_length,ep->ep_description.data_ep->private_data);
+                 
+                /* get buffer to receive new packet */        
+                pbuf=        ep->ep_description.data_ep->GetBuffer(ep->ep_description.data_ep->private_data,&packet_length);                                                                                                                         
+ 
+                 USBD_LL_PrepareReceive( pdev,     epnum, pbuf,     packet_length);
+                }
+                else
+                {
+                        USBD_error_handler();
+                }
+                
+        
+ 
+
+
+
+
+=================================参考2=============================================
+  
+
+
+ //usb中断  （或插拔中断）
+HAL_PCD_IRQHandler( *hpcd)
+
+              .......(忽略)               
+
+
+
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_IEPINT))
+                {
+                        /* Read in the device interrupt bits */
+                        ep_intr = USB_ReadDevAllInEpInterrupt(hpcd->Instance);
+
+                        epnum = 0U;
+
+                        while (ep_intr != 0U)
+                        {
+                                if ((ep_intr & 0x1U) != 0U) /* In ITR */
+                                {
+                                        epint = USB_ReadDevInEPInterrupt(hpcd->Instance, (uint8_t)epnum);
+
+                                        if ((epint & USB_OTG_DIEPINT_XFRC) == USB_OTG_DIEPINT_XFRC)
+                                        {
+                                                fifoemptymsk = (uint32_t)(0x1UL << (epnum & EP_ADDR_MSK));
+                                                USBx_DEVICE->DIEPEMPMSK &= ~fifoemptymsk;
+
+                                                CLEAR_IN_EP_INTR(epnum, USB_OTG_DIEPINT_XFRC);
+
+ 
+                                                HAL_PCD_DataInStageCallback(hpcd, (uint8_t)epnum);
+ 
+                                        }
+                                        if ((epint & USB_OTG_DIEPINT_TOC) == USB_OTG_DIEPINT_TOC)
+                                        {
+                                                CLEAR_IN_EP_INTR(epnum, USB_OTG_DIEPINT_TOC);
+                                        }
+                                        if ((epint & USB_OTG_DIEPINT_ITTXFE) == USB_OTG_DIEPINT_ITTXFE)
+                                        {
+                                                CLEAR_IN_EP_INTR(epnum, USB_OTG_DIEPINT_ITTXFE);
+                                        }
+                                        if ((epint & USB_OTG_DIEPINT_INEPNE) == USB_OTG_DIEPINT_INEPNE)
+                                        {
+                                                CLEAR_IN_EP_INTR(epnum, USB_OTG_DIEPINT_INEPNE);
+                                        }
+                                        if ((epint & USB_OTG_DIEPINT_EPDISD) == USB_OTG_DIEPINT_EPDISD)
+                                        {
+                                                CLEAR_IN_EP_INTR(epnum, USB_OTG_DIEPINT_EPDISD);
+                                        }
+                                        if ((epint & USB_OTG_DIEPINT_TXFE) == USB_OTG_DIEPINT_TXFE)
+                                        {
+                                                (void)PCD_WriteEmptyTxFifo(hpcd, epnum);
+                                        }
+                                }
+                                epnum++;
+                                ep_intr >>= 1U;
+                        }
+                }
+
+                /* Handle Resume Interrupt */
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_WKUINT))
+                {
+                        /* Clear the Remote Wake-up Signaling */
+                        USBx_DEVICE->DCTL &= ~USB_OTG_DCTL_RWUSIG;
+
+                        if (hpcd->LPM_State == LPM_L1)
+                        {
+                                hpcd->LPM_State = LPM_L0;
+
+ 
+                                HAL_PCDEx_LPM_Callback(hpcd, PCD_LPM_L0_ACTIVE);
+ 
+                        }
+                        else
+                        {
+ 
+                                HAL_PCD_ResumeCallback(hpcd);
+ 
+                        }
+
+                        __HAL_PCD_CLEAR_FLAG(hpcd, USB_OTG_GINTSTS_WKUINT);
+                }
+
+                /* Handle Suspend Interrupt */
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_USBSUSP))
+                {
+                        if ((USBx_DEVICE->DSTS & USB_OTG_DSTS_SUSPSTS) == USB_OTG_DSTS_SUSPSTS)
+                        {
+ 
+                                HAL_PCD_SuspendCallback(hpcd);
+ 
+                        }
+                        __HAL_PCD_CLEAR_FLAG(hpcd, USB_OTG_GINTSTS_USBSUSP);
+                }
+
+
+                /* Handle Reset Interrupt */
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_USBRST))
+                {
+                        USBx_DEVICE->DCTL &= ~USB_OTG_DCTL_RWUSIG;
+                        (void)USB_FlushTxFifo(hpcd->Instance, 0x10U);
+
+                        for (i = 0U; i < hpcd->Init.dev_endpoints; i++)
+                        {
+                                USBx_INEP(i)->DIEPINT = 0xFB7FU;
+                                USBx_INEP(i)->DIEPCTL &= ~USB_OTG_DIEPCTL_STALL;
+                                USBx_INEP(i)->DIEPCTL |= USB_OTG_DIEPCTL_SNAK;
+                                USBx_OUTEP(i)->DOEPINT = 0xFB7FU;
+                                USBx_OUTEP(i)->DOEPCTL &= ~USB_OTG_DOEPCTL_STALL;
+                                USBx_OUTEP(i)->DOEPCTL |= USB_OTG_DOEPCTL_SNAK;
+                        }
+                        USBx_DEVICE->DAINTMSK |= 0x10001U;
+
+                        if (hpcd->Init.use_dedicated_ep1 != 0U)
+                        {
+                                USBx_DEVICE->DOUTEP1MSK |= USB_OTG_DOEPMSK_STUPM |
+                                                                                                                                         USB_OTG_DOEPMSK_XFRCM |
+                                                                                                                                         USB_OTG_DOEPMSK_EPDM;
+
+                                USBx_DEVICE->DINEP1MSK |= USB_OTG_DIEPMSK_TOM |
+                                                                                                                                        USB_OTG_DIEPMSK_XFRCM |
+                                                                                                                                        USB_OTG_DIEPMSK_EPDM;
+                        }
+                        else
+                        {
+                                USBx_DEVICE->DOEPMSK |= USB_OTG_DOEPMSK_STUPM |
+                                                                                                                                USB_OTG_DOEPMSK_XFRCM |
+                                                                                                                                USB_OTG_DOEPMSK_EPDM |
+                                                                                                                                USB_OTG_DOEPMSK_OTEPSPRM |
+                                                                                                                                USB_OTG_DOEPMSK_NAKM;
+
+                                USBx_DEVICE->DIEPMSK |= USB_OTG_DIEPMSK_TOM |
+                                                                                                                                USB_OTG_DIEPMSK_XFRCM |
+                                                                                                                                USB_OTG_DIEPMSK_EPDM;
+                        }
+
+                        /* Set Default Address to 0 */
+                        USBx_DEVICE->DCFG &= ~USB_OTG_DCFG_DAD;
+
+                        /* setup EP0 to receive SETUP packets */
+                        (void)USB_EP0_OutStart(hpcd->Instance, (uint8_t)hpcd->Init.dma_enable,
+                                                                                                                 (uint8_t *)hpcd->Setup);
+
+                        __HAL_PCD_CLEAR_FLAG(hpcd, USB_OTG_GINTSTS_USBRST);
+                }
+
+                /* Handle Enumeration done Interrupt */
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_ENUMDNE))
+                {
+                        (void)USB_ActivateSetup(hpcd->Instance);
+                        hpcd->Init.speed = USB_GetDevSpeed(hpcd->Instance);
+
+                        /* Set USB Turnaround time */
+                        (void)USB_SetTurnaroundTime(hpcd->Instance,
+                                                                                                                                        HAL_RCC_GetHCLKFreq(),
+                                                                                                                                        (uint8_t)hpcd->Init.speed);
+
+ 
+                        HAL_PCD_ResetCallback(hpcd);
+ 
+
+                        __HAL_PCD_CLEAR_FLAG(hpcd, USB_OTG_GINTSTS_ENUMDNE);
+                }
+
+                /* Handle SOF Interrupt */
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_SOF))
+                {
+ 
+                        HAL_PCD_SOFCallback(hpcd);
+ 
+
+                        __HAL_PCD_CLEAR_FLAG(hpcd, USB_OTG_GINTSTS_SOF);
+                }
+
+                /* Handle Incomplete ISO IN Interrupt */
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_IISOIXFR))
+                {
+                        /* Keep application checking the corresponding Iso IN endpoint
+                        causing the incomplete Interrupt */
+                        epnum = 0U; 
+ 
+                        HAL_PCD_ISOINIncompleteCallback(hpcd, (uint8_t)epnum);
+ 
+
+                        __HAL_PCD_CLEAR_FLAG(hpcd, USB_OTG_GINTSTS_IISOIXFR);
+                }
+
+                /* Handle Incomplete ISO OUT Interrupt */
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_PXFR_INCOMPISOOUT))
+                {
+                        /* Keep application checking the corresponding Iso OUT endpoint
+                        causing the incomplete Interrupt */
+                        epnum = 0U;
+
+ 
+                        HAL_PCD_ISOOUTIncompleteCallback(hpcd, (uint8_t)epnum);
+ 
+
+                        __HAL_PCD_CLEAR_FLAG(hpcd, USB_OTG_GINTSTS_PXFR_INCOMPISOOUT);
+                }
+
+                /* Handle Connection event Interrupt */
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_SRQINT))
+                {
+ 
+                        HAL_PCD_ConnectCallback(hpcd);
+ 
+
+                        __HAL_PCD_CLEAR_FLAG(hpcd, USB_OTG_GINTSTS_SRQINT);
+                }
+
+                /* Handle Disconnection event Interrupt */
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_OTGINT))
+                {
+                        temp = hpcd->Instance->GOTGINT;
+
+                        if ((temp & USB_OTG_GOTGINT_SEDET) == USB_OTG_GOTGINT_SEDET)
+                        {
+ 
+                                HAL_PCD_DisconnectCallback(hpcd);
+ 
+                        }
+                        hpcd->Instance->GOTGINT |= temp;
+                }
+        }
+ 
+
+
+
+---------------------------------------
+
+USBD_AUDIO_Init (U        *pdev,         cfgidx)                //需要
+---
+ USBD_AUDIO_DataIn ( *pdev,        epnum)        //不需
+-----
+USBD_AUDIO_DataOut (        *pdev,         epnum)         //需要
+----
+
+static uint8_t        USBD_AUDIO_SOF (USBD_HandleTypeDef *pdev)         //需要
+{
+                USBD_AUDIO_HandleTypeDef         *haudio;
+        
+ 
+        haudio = (USBD_AUDIO_HandleTypeDef*) pdev->pClassData; 
+        
+        for(int i=0;i<haudio->aud_function.as_interfaces_count;i++)
+        {
+                        if(haudio->aud_function.as_interfaces[i].alternate!=0)
+                        {
+                                if(haudio->aud_function.as_interfaces[i].SofReceived)
+                                        
+                                {
+                                        haudio->aud_function.as_interfaces[i].SofReceived(haudio->aud_function.as_interfaces[i].private_data);
+                                }
+                        }
+        }
+        return USBD_OK;
+}
+
+
+
+
+---
+
+
+ InterfaceUsbUpdate( )
+ 
+    if(isVbusHigh())  //USB port PLUGGED
+  
+        .......
+ 
+        else
+        if (UsbGetState() == USB_CONNECTED)
+ 
+            if(isUsbConfigured()) 
+                UsbSetState(USB_CONFIGURED);
+ 
+            else if(isUsbSuspended())  
+                Usb.deinit();
+                UsbSetState(USB_DISCONNECTED);
+    
+    else 
+        if (UsbGetState() == USB_DISCONNECTED)
+       
+            Usb.deinit();                                                           
+            UsbSetState(USB_DISCONNECTED);
+ 
+
+
+
+
+参数： hUsbDeviceFS, audio_class_interface
+USBD_AUDIO_RegisterInterface  (   *pdev,  *aifc)
+ 
+    if(aifc != NULL)  
+        hUsbDeviceFS->pUserData= audio_class_interface;
+        //aifc->GetConfigDesc(&USBD_AUDIO_CfgDesc, &USBD_AUDIO_CfgDescSize,   aifc->private_data);       //AUDIO_USB_GetConfigDesc
+                      USBD_AUDIO_CfgDesc = USBD_AUDIO_ConfigDescriptor;
+                       USBD_AUDIO_CfgDescSize = CONFIG_DESCRIPTOR_SIZE ;
+---
+
+参数：USBD_AUDIO_CfgDesc,  &USBD_AUDIO_CfgDescSize,  aifc->private_data
+AUDIO_USB_GetConfigDesc (  ** pdata,  * psize,  private_data)   //private_data无用可忽略
+ 
+   //*psize =  USB_AUDIO_GetConfigDescriptor(pdata);
+               pdata = USBD_AUDIO_ConfigDescriptor;
+               *psize  =    CONFIG_DESCRIPTOR_SIZE ; 
+     
+
+---
+
+#define    USBD_malloc           (USBD_AUDIO_HandleTypeDef *)USBD_static_malloc
+
+*USBD_static_malloc(size)
+ 
+     static uint32_t   mem[ ( sizeof(USBD_AUDIO_HandleTypeDef) / 4) +1 ]; 
+ 
+     return mem;
+
+
+

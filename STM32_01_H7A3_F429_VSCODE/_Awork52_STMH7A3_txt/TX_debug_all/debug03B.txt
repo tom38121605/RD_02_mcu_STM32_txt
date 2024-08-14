@@ -1,0 +1,675 @@
+
+
+
+#define  USB_REQ_GET_STATUS                             0x00U
+#define  USB_REQ_CLEAR_FEATURE                          0x01U
+#define  USB_REQ_SET_FEATURE                            0x03U
+#define  USB_REQ_SET_ADDRESS                            0x05U
+#define  USB_REQ_GET_DESCRIPTOR                         0x06U
+#define  USB_REQ_SET_DESCRIPTOR                         0x07U
+#define  USB_REQ_GET_CONFIGURATION                      0x08U
+#define  USB_REQ_SET_CONFIGURATION                      0x09U
+#define  USB_REQ_GET_INTERFACE                          0x0AU
+#define  USB_REQ_SET_INTERFACE                          0x0BU
+#define  USB_REQ_SYNCH_FRAME                            0x0CU
+
+#define  USB_DESC_TYPE_DEVICE                           0x01U
+#define  USB_DESC_TYPE_CONFIGURATION                    0x02U
+#define  USB_DESC_TYPE_STRING                           0x03U
+#define  USB_DESC_TYPE_INTERFACE                        0x04U
+#define  USB_DESC_TYPE_ENDPOINT                         0x05U
+#define  USB_DESC_TYPE_DEVICE_QUALIFIER                 0x06U
+#define  USB_DESC_TYPE_OTHER_SPEED_CONFIGURATION        0x07U
+#define  USB_DESC_TYPE_IAD                              0x0BU
+#define  USB_DESC_TYPE_BOS                              0x0FU
+
+
+----------------------------------
+ 
+typedef struct 
+{
+   PCD_TypeDef                   *Instance;    
+   PCD_InitTypeDef              Init;       
+   __IO uint8_t                       USB_Address;  
+    PCD_EPTypeDef                IN_ep[16];   
+    PCD_EPTypeDef                OUT_ep[16];   
+
+   HAL_LockTypeDef               Lock;     
+   __IO PCD_StateTypeDef       State;    
+   __IO  uint32_t                        ErrorCode;   
+
+   uint32_t                                 Setup[12];                              //Setup packet buffer   //这里
+
+   PCD_LPM_StateTypeDef      LPM_State;  
+   uint32_t                                   BESL;
+
+   uint32_t                                   lpm_active;            
+   uint32_t                                   battery_charging_active;     
+   void                                          *pData;      
+ 
+} PCD_HandleTypeDef;
+
+typedef struct _USBD_HandleTypeDef
+{
+  uint8_t                              id;
+  uint32_t                             dev_config;
+  uint32_t                             dev_default_config;
+  uint32_t                             dev_config_status;
+  USBD_SpeedTypeDef        dev_speed;
+  USBD_EndpointTypeDef    ep_in[16];
+  USBD_EndpointTypeDef    ep_out[16];
+   __IO uint32_t                        ep0_state;
+
+   uint32_t                ep0_data_len;
+  __IO uint8_t            dev_state;
+  __IO uint8_t            dev_old_state;
+  uint8_t                     dev_address;
+  uint8_t                     dev_connection_status;
+  uint8_t                     dev_test_mode;
+  uint32_t                   dev_remote_wakeup;
+  uint8_t                     ConfIdx;
+
+  USBD_SetupReqTypedef        request;                          //这里
+
+  USBD_DescriptorsTypeDef     *pDesc;
+  USBD_ClassTypeDef                *pClass;
+  void                                           *pClassData;
+  void                                            *pUserData;
+  void                                            *pData;
+  void                                            *pBosDesc;
+  void                                            *pConfDesc;
+
+} USBD_HandleTypeDef;
+
+
+ ---------------------------------------两个ep比较-----------------------------------------------------
+
+
+------ USBD_EndpointTypeDef ------
+
+typedef struct
+{
+  uint32_t status;
+  uint32_t total_length;
+  uint32_t rem_length;
+  uint32_t maxpacket;
+  uint16_t is_used;
+  uint16_t bInterval;
+} USBD_EndpointTypeDef;
+
+
+------ PCD_EPTypeDef ：------
+
+typedef struct
+{
+  uint8_t   num;                  /*!< Endpoint number
+                                       This parameter must be a number between Min_Data = 1 and Max_Data = 15   */
+
+  uint8_t   is_in;                /*!< Endpoint direction
+                                       This parameter must be a number between Min_Data = 0 and Max_Data = 1    */
+
+  uint8_t   is_stall;             /*!< Endpoint stall condition
+                                       This parameter must be a number between Min_Data = 0 and Max_Data = 1    */
+
+  uint8_t   type;                 /*!< Endpoint type
+                                       This parameter can be any value of @ref USB_EP_Type_                     */
+
+  uint8_t   data_pid_start;       /*!< Initial data PID
+                                       This parameter must be a number between Min_Data = 0 and Max_Data = 1    */
+
+  uint8_t   even_odd_frame;       /*!< IFrame parity
+                                       This parameter must be a number between Min_Data = 0 and Max_Data = 1    */
+
+  uint16_t  tx_fifo_num;          /*!< Transmission FIFO number
+                                       This parameter must be a number between Min_Data = 1 and Max_Data = 15   */
+
+  uint32_t  maxpacket;            /*!< Endpoint Max packet size
+                                       This parameter must be a number between Min_Data = 0 and Max_Data = 64KB */
+
+  uint8_t   *xfer_buff;           /*!< Pointer to transfer buffer                                               */
+
+  uint32_t  dma_addr;             /*!< 32 bits aligned transfer buffer address                                  */
+
+  uint32_t  xfer_len;             /*!< Current transfer length                                                  */
+
+  uint32_t  xfer_count;           /*!< Partial transfer length in case of multi packet transfer                 */
+} USB_OTG_EPTypeDef;
+
+typedef USB_OTG_EPTypeDef      PCD_EPTypeDef;
+
+
+
+------------------------------AUDIO_SpeakerHandler --PlaybackSpeakerOutputNode---------------------
+
+
+typedef struct
+{
+  uint8_t*                   data;
+  uint16_t                   rd_ptr; 
+  uint16_t                   wr_ptr;   
+  uint16_t                   size;  
+}
+AUDIO_CircularBuffer_t;
+
+typedef struct
+{
+  uint16_t               injection_size;       
+  uint8_t*               data;               
+  uint16_t               data_size;           
+  uint8_t*               alt_buffer;          
+  uint16_t               alt_buf_half_size;    
+  uint8_t                 double_buff;         
+  uint8_t                 offset ;               
+  __IO uint8_t          cmd;              
+  uint16_t               dma_remaining;  
+
+} AUDIO_SpeakerSpecificParms_t;
+
+
+typedef struct
+{
+    AUDIO_Node_t                            node;                       
+    AUDIO_CircularBuffer_t*            buf;                        
+    uint16_t                                        packet_length;     
+ 
+    int8_t                                (*SpeakerDeInit)    (uint32_t  );
+    int8_t                                (*SpeakerStart)     (AUDIO_CircularBuffer_t*  , uint32_t );
+    int8_t                                (*SpeakerStop)        ( uint32_t  );
+    int8_t                                (*SpeakerChangeFrequency)        ( uint32_t  );
+    int8_t                                (*SpeakerMute)        (uint16_t  , uint8_t  ,uint32_t );
+    int8_t                                (*SpeakerSetVolume)        ( uint16_t , int  , uint32_t  );
+    int8_t                                (*SpeakerStartReadCount)         (uint32_t  );
+    uint16_t                            (*SpeakerGetReadCount)        (    uint32_t  );
+    AUDIO_SpeakerSpecificParms_t     specific;  
+
+}AUDIO_SpeakerNode_t;
+
+static AUDIO_SpeakerNode_t                 *AUDIO_SpeakerHandler = 0;
+static AUDIO_SpeakerNode_t                 PlaybackSpeakerOutputNode;
+
+
+ 
+-----------------------------------------------hpcd_USB_OTG_FS-----------------------------------------------
+
+typedef struct
+{
+  uint32_t    dev_endpoints;           //端点数量  （范围1-15）
+  uint32_t    Host_channels;           // Host Channels number（范围1-15）
+  uint32_t    speed;                           //USB Core speed.                                  
+  uint32_t    dma_enable;               
+  uint32_t    ep0_mps;                             // Set the Endpoint 0 Max Packet size 
+  uint32_t    phy_itface;                          //Select the used PHY interface 
+  uint32_t    Sof_enable;                           /*!< Enable or disable the output of the SOF signal.         
+  uint32_t    low_power_enable;             //Enable or disable the low power mode. 
+  uint32_t    lpm_enable;                          //Enable or disable Link Power Management 
+  uint32_t   battery_charging_enable; 
+  uint32_t    vbus_sensing_enable;         /*!< Enable or disable the VBUS Sensing feature.                         
+  uint32_t    use_dedicated_ep1;             /*!< Enable or disable the use of the dedicated EP1 interrupt.         
+  uint32_t    use_external_vbus;               /*!< Enable or disable the use of the external VBUS.                     
+
+} USB_OTG_CfgTypeDef;
+
+typedef USB_OTG_CfgTypeDef     PCD_InitTypeDef;
+
+
+typedef struct
+{
+  uint8_t      num;                // Endpoint number:  1-15
+  uint8_t      is_in;                // Endpoint direction:  0-1 
+  uint8_t      is_stall;             // Endpoint stall condition:n0-1 
+
+  uint8_t       type;             
+  uint8_t       data_pid_start;       // Initial data PID:  0-1 
+  uint8_t      even_odd_frame;   // IFrame parity:  0-1 
+  uint16_t     tx_fifo_num;          // Transmission FIFO number:  1-15
+  uint32_t    maxpacket;             // Endpoint Max packet size: 64KB 
+
+  uint8_t     *xfer_buff;              // Pointer to transfer buffer     
+  uint32_t    dma_addr;             // 32 bits aligned transfer buffer address     
+  uint32_t    xfer_len;                 // Current transfer length             
+  uint32_t    xfer_count;       
+
+} USB_OTG_EPTypeDef;
+
+typedef USB_OTG_EPTypeDef      PCD_EPTypeDef;
+
+
+typedef struct
+{
+  PCD_TypeDef             *Instance;   
+  PCD_InitTypeDef         Init;       
+  __IO uint8_t                 USB_Address; 
+  PCD_EPTypeDef           IN_ep[16];   
+  PCD_EPTypeDef           OUT_ep[16];  
+ 
+  HAL_LockTypeDef              Lock;        
+  __IO PCD_StateTypeDef      State;       
+  __IO  uint32_t                       ErrorCode;  
+  uint32_t                                Setup[12];                      //Setup packet buffer   //这里
+  PCD_LPM_StateTypeDef    LPM_State;   
+  uint32_t                                BESL;
+
+  uint32_t                        lpm_active;              
+  uint32_t                        battery_charging_active;     
+  void                              *pData;     
+ 
+} PCD_HandleTypeDef;
+
+PCD_HandleTypeDef     hpcd_USB_OTG_FS;
+
+
+
+------------------------hUsbDeviceFS------------------------
+
+#define  USB_REQ_RECIPIENT_DEVICE                        0x00U                //bmRequest
+#define  USB_REQ_RECIPIENT_INTERFACE                 0x01U
+#define  USB_REQ_RECIPIENT_ENDPOINT                  0x02U
+#define  USB_REQ_RECIPIENT_MASK                          0x03U
+
+
+typedef  struct  usb_setup_req
+{
+  uint8_t   bmRequest;
+  uint8_t   bRequest;
+  uint16_t  wValue;
+  uint16_t  wIndex;
+  uint16_t  wLength;
+} USBD_SetupReqTypedef;
+
+typedef struct
+{
+  uint32_t status;
+  uint32_t total_length;
+  uint32_t rem_length;
+  uint32_t maxpacket;
+  uint16_t is_used;
+  uint16_t bInterval;
+} USBD_EndpointTypeDef;
+
+typedef struct _USBD_HandleTypeDef
+{
+  uint8_t                 id;
+  uint32_t                dev_config;
+  uint32_t                dev_default_config;
+  uint32_t                dev_config_status;
+  USBD_SpeedTypeDef       dev_speed;
+  USBD_EndpointTypeDef    ep_in[16];
+  USBD_EndpointTypeDef    ep_out[16];
+  __IO uint32_t           ep0_state;
+  uint32_t                ep0_data_len;
+  __IO uint8_t            dev_state;
+  __IO uint8_t            dev_old_state;
+  uint8_t                 dev_address;
+  uint8_t                 dev_connection_status;
+  uint8_t                 dev_test_mode;
+  uint32_t                dev_remote_wakeup;
+  uint8_t                 ConfIdx;
+
+  USBD_SetupReqTypedef    request;                   //这里
+  USBD_DescriptorsTypeDef *pDesc;
+  USBD_ClassTypeDef       *pClass;
+  void                    *pClassData;
+  void                    *pUserData;
+  void                    *pData;
+  void                    *pBosDesc;
+  void                    *pConfDesc;
+} USBD_HandleTypeDef;
+
+USBD_HandleTypeDef hUsbDeviceFS;
+
+
+
+--------------------------------------USB_AudioPlabackSession--------------------------------
+
+typedef struct
+{
+  uint8_t*                   data;
+  uint16_t                   rd_ptr; 
+  uint16_t                   wr_ptr;   
+  uint16_t                   size;  
+}
+AUDIO_CircularBuffer_t;
+
+
+typedef struct    AUDIO_Session
+{
+  AUDIO_Node_t                 * node_list; 
+  AUDIO_SessionState_t      state;
+  int8_t                                  (*SessionCallback) (  AUDIO_SessionEvent_t  
+                                                                                  AUDIO_Node_t* ,
+                                                                                  struct    AUDIO_Session*  
+}AUDIO_Session_t;
+
+
+typedef struct    AUDIO_USB_StreamingSession
+{
+  AUDIO_Session_t              session;  
+  int8_t                                  (*SessionDeInit)       (uint32_t  );
+
+  uint8_t                                  interface_num;  
+  uint8_t                                 alternate;  
+  AUDIO_CircularBuffer_t     buffer;  
+
+}
+AUDIO_USBSession_t;
+
+AUDIO_USBSession_t    USB_AudioPlabackSession;
+
+
+-----------------------------------------------haudio-----------------------------------------------
+
+
+typedef struct USBD_AUDIO_AS_Interface
+{
+    uint8_t      interface_num; 
+    uint8_t      max_alternate;  
+    uint8_t      alternate; 
+
+    USBD_AUDIO_EP_DataTypeDef       data_ep;  
+ 
+    uint8_t                                                 synch_enabled;
+    USBD_AUDIO_EP_SynchTypeDef     synch_ep; 
+ 
+    void           (*SofReceived)     ( uint32_t );
+    int8_t         (*SetAS_Alternate)     ( uint8_t ,uint32_t /);
+    int8_t         (*GetState)     (uint32_t );
+
+    uint32_t     private_data; 
+
+}USBD_AUDIO_AS_InterfaceTypeDef;
+
+
+typedef struct
+{
+  uint8_t                                                          control_count;  
+  uint8_t                                                          as_interfaces_count; 
+  USBD_AUDIO_ControlTypeDef                  controls[USBD_AUDIO_CONFIG_CONTROL_UNIT_COUNT];   
+  USBD_AUDIO_AS_InterfaceTypeDef         as_interfaces[USBD_AUDIO_AS_INTERFACE_COUNT]; 
+
+}USBD_AUDIO_FunctionDescriptionfTypeDef;
+
+
+------
+
+ typedef struct 
+ {
+   uint8_t         ep_num; 
+   uint16_t       control_name_map;  
+   uint16_t        control_selector_map;  
+   uint8_t         * buf;
+   uint16_t       length;
+   int8_t          (*DataReceived)     ( uint16_t ,uint32_t ); 
+   uint8_t*       (*GetBuffer)    (uint32_t  , uint16_t* packet_length);  
+   uint16_t       (*GetMaxPacketLength)    (uint32_t  );  
+   int8_t           (*GetState)     (uint32_t );
+ 
+   uint32_t       private_data; 
+
+ }  USBD_AUDIO_EP_DataTypeDef;
+ 
+
+ typedef struct
+{
+          union
+          {
+                    USBD_AUDIO_EP_DataTypeDef*     data_ep; 
+                    USBD_AUDIO_EP_SynchTypeDef*   sync_ep; 
+          }ep_description;
+
+          USBD_AUDIO_EpUsageTypeDef      ep_type;
+          uint8_t                                                 open;  
+          uint16_t                                               max_packet_length;  
+          uint16_t                                               tx_rx_soffn;
+
+}USBD_AUDIO_EPTypeDef;
+   
+                                                                                                        
+ 
+typedef struct 
+{
+        USBD_AUDIO_FunctionDescriptionfTypeDef          aud_function;  
+        USBD_AUDIO_EPTypeDef                                          ep_in[USBD_AUDIO_MAX_IN_EP];  
+        USBD_AUDIO_EPTypeDef                                          ep_out[USBD_AUDIO_MAX_OUT_EP];  
+ 
+        struct
+        {
+                union
+                {
+                        USBD_AUDIO_ControlTypeDef        *controller; 
+                } entity;
+
+                uint8_t          request_target;
+                uint8_t          data[USB_MAX_EP0_SIZE];       
+                uint32_t       len; 
+                uint16_t        wValue; 
+                uint8_t          req; 
+
+        }last_control;
+
+}USBD_AUDIO_HandleTypeDef;           
+
+USBD_AUDIO_HandleTypeDef     *haudio;
+
+
+
+
+
+------------------------AUDIO_SpeakerHandler --PlaybackSpeakerOutputNode-------------------
+
+
+typedef struct
+{
+  uint8_t*                   data;
+  uint16_t                   rd_ptr; 
+  uint16_t                   wr_ptr;   
+  uint16_t                   size;  
+}
+AUDIO_CircularBuffer_t;
+
+typedef struct
+{
+  uint16_t               injection_size;       
+  uint8_t*               data;               
+  uint16_t               data_size;           
+  uint8_t*               alt_buffer;          
+  uint16_t               alt_buf_half_size;    
+  uint8_t                 double_buff;         
+  uint8_t                 offset ;               
+  __IO uint8_t          cmd;              
+  uint16_t               dma_remaining;  
+
+} AUDIO_SpeakerSpecificParms_t;
+
+
+typedef struct
+{
+    AUDIO_Node_t                            node;                       
+    AUDIO_CircularBuffer_t*            buf;                        
+    uint16_t                                        packet_length;     
+ 
+    int8_t                                (*SpeakerDeInit)    (uint32_t  );
+    int8_t                                (*SpeakerStart)     (AUDIO_CircularBuffer_t*  , uint32_t );
+    int8_t                                (*SpeakerStop)        ( uint32_t  );
+    int8_t                                (*SpeakerChangeFrequency)        ( uint32_t  );
+    int8_t                                (*SpeakerMute)        (uint16_t  , uint8_t  ,uint32_t );
+    int8_t                                (*SpeakerSetVolume)        ( uint16_t , int  , uint32_t  );
+    int8_t                                (*SpeakerStartReadCount)         (uint32_t  );
+    uint16_t                            (*SpeakerGetReadCount)        (    uint32_t  );
+    AUDIO_SpeakerSpecificParms_t     specific;  
+
+}AUDIO_SpeakerNode_t;
+
+static AUDIO_SpeakerNode_t                 *AUDIO_SpeakerHandler = 0;
+static AUDIO_SpeakerNode_t                 PlaybackSpeakerOutputNode;
+
+
+ 
+
+--------------------------------------default_app--------------------------------------------
+
+struct app_definition_s
+{
+        char *app_name;
+        mode_e app_mode;
+        void (*helper)(void const *argument);
+        void (*terminate)(void);
+        usb_data_e (*on_rx)(uint8_t *pBuf , uint16_t len, uint16_t *read_offset,uint16_t cyclic_size);
+        void (*command_parser)(usb_data_e res, char * text);
+        const struct command_s *sub_command;
+};
+typedef   struct   app_definition_s    app_definition_t;
+extern   app_definition_t   *known_apps;
+
+  struct command_s
+ {
+     const char     *name;      /**< Command name string */
+     const uint32_t mode;       /**< allowed execution operation mode */
+     REG_FN         ((*fn));    /**< function() */
+     const char     *cmnt;
+ };
+
+const app_definition_t helpers_app_audio_tx[] __attribute__((section(".known_apps"))) = 
+{
+    {"AUDIO_TX", mAPP, audio_tx_helper,  audio_tx_terminate, waitForCommand, command_parser, &known_commands_audio_tx}
+};
+
+#define DEFAULT_APP    helpers_app_audio_tx
+
+app_definition_t *default_app   ...= DEFAULT_APP;
+
+
+
+-----------------------------互相包含-------------------------------------
+
+typedef struct        AUDIO_Session
+ {
+    AUDIO_Node_t * node_list;    //包含
+    AUDIO_SessionState_t state;
+
+    int8_t    (*SessionCallback) (    AUDIO_SessionEvent_t ， AUDIO_Node_t* ， struct，AUDIO_Session*    ); 
+}AUDIO_Session_t;
+ 
+
+------
+
+typedef struct    AUDIO_Node
+{
+ 
+  AUDIO_NodeState_t    state; 
+  AUDIO_Description_t* audio_description;
+  AUDIO_NodeType_t     type;
+  struct AUDIO_Session*     session_handle;      //包含
+  struct AUDIO_Node*        next;
+}
+AUDIO_Node_t;
+
+ 
+
+
+----------------------------------------USB CORE------------------------------------------
+
+#define USB_OTG_HS_PERIPH_BASE               0x40040000UL
+#define USB_OTG_FS_PERIPH_BASE               0x50000000UL
+
+#define USB_OTG_GLOBAL_BASE                  0x000UL
+#define USB_OTG_DEVICE_BASE                  0x800UL
+#define USB_OTG_IN_ENDPOINT_BASE             0x900UL
+#define USB_OTG_OUT_ENDPOINT_BASE            0xB00UL
+#define USB_OTG_EP_REG_SIZE                  0x20UL
+#define USB_OTG_HOST_BASE                    0x400UL
+#define USB_OTG_HOST_PORT_BASE               0x440UL
+#define USB_OTG_HOST_CHANNEL_BASE            0x500UL
+#define USB_OTG_HOST_CHANNEL_SIZE            0x20UL
+#define USB_OTG_PCGCCTL_BASE                 0xE00UL
+#define USB_OTG_FIFO_BASE                    0x1000UL
+#define USB_OTG_FIFO_SIZE                     0x1000UL
+
+
+USBx_BASE=USB_OTG_FS
+#define USBx_DFIFO(i)          *(USBx_BASE + USB_OTG_FIFO_BASE + ((i) * USB_OTG_FIFO_SIZE))
+#define __UNALIGNED_UINT32_WRITE(addr, val)    ((*((__packed uint32_t *)(addr))) = (val))
+
+
+typedef struct
+{
+  __IO uint32_t GOTGCTL;              /*!< USB_OTG Control and Status Register          000h */
+  __IO uint32_t GOTGINT;              /*!< USB_OTG Interrupt Register                   004h */
+  __IO uint32_t GAHBCFG;              /*!< Core AHB Configuration Register              008h */
+  __IO uint32_t GUSBCFG;              /*!< Core USB Configuration Register              00Ch */
+  __IO uint32_t GRSTCTL;              /*!< Core Reset Register                          010h */
+  __IO uint32_t GINTSTS;              /*!< Core Interrupt Register                      014h */
+  __IO uint32_t GINTMSK;              /*!< Core Interrupt Mask Register                 018h */
+  __IO uint32_t GRXSTSR;              /*!< Receive Sts Q Read Register                  01Ch */
+  __IO uint32_t GRXSTSP;              /*!< Receive Sts Q Read & POP Register            020h */
+  __IO uint32_t GRXFSIZ;              /*!< Receive FIFO Size Register                   024h */
+  __IO uint32_t DIEPTXF0_HNPTXFSIZ;   /*!< EP0 / Non Periodic Tx FIFO Size Register     028h */
+  __IO uint32_t HNPTXSTS;             /*!< Non Periodic Tx FIFO/Queue Sts reg           02Ch */
+  uint32_t Reserved30[2];             /*!< Reserved                                     030h */
+  __IO uint32_t GCCFG;                /*!< General Purpose IO Register                  038h */
+  __IO uint32_t CID;                  /*!< User ID Register                             03Ch */
+  uint32_t  Reserved40[48];           /*!< Reserved                                0x40-0xFF */
+  __IO uint32_t HPTXFSIZ;             /*!< Host Periodic Tx FIFO Size Reg               100h */
+  __IO uint32_t DIEPTXF[0x0F];        /*!< dev Periodic Transmit FIFO                        */
+} USB_OTG_GlobalTypeDef;
+
+/** 
+  * @brief USB_OTG_device_Registers
+  */
+typedef struct 
+{
+  __IO uint32_t DCFG;            /*!< dev Configuration Register   800h */
+  __IO uint32_t DCTL;            /*!< dev Control Register         804h */
+  __IO uint32_t DSTS;            /*!< dev Status Register (RO)     808h */
+  uint32_t Reserved0C;           /*!< Reserved                     80Ch */
+  __IO uint32_t DIEPMSK;         /*!< dev IN Endpoint Mask         810h */
+  __IO uint32_t DOEPMSK;         /*!< dev OUT Endpoint Mask        814h */
+  __IO uint32_t DAINT;           /*!< dev All Endpoints Itr Reg    818h */
+  __IO uint32_t DAINTMSK;        /*!< dev All Endpoints Itr Mask   81Ch */
+  uint32_t  Reserved20;          /*!< Reserved                     820h */
+  uint32_t Reserved9;            /*!< Reserved                     824h */
+  __IO uint32_t DVBUSDIS;        /*!< dev VBUS discharge Register  828h */
+  __IO uint32_t DVBUSPULSE;      /*!< dev VBUS Pulse Register      82Ch */
+  __IO uint32_t DTHRCTL;         /*!< dev threshold                830h */
+  __IO uint32_t DIEPEMPMSK;      /*!< dev empty msk                834h */
+  __IO uint32_t DEACHINT;        /*!< dedicated EP interrupt       838h */
+  __IO uint32_t DEACHMSK;        /*!< dedicated EP msk             83Ch */
+  uint32_t Reserved40;           /*!< dedicated EP mask            840h */
+  __IO uint32_t DINEP1MSK;       /*!< dedicated EP mask            844h */
+  uint32_t  Reserved44[15];      /*!< Reserved                 844-87Ch */
+  __IO uint32_t DOUTEP1MSK;      /*!< dedicated EP msk             884h */
+} USB_OTG_DeviceTypeDef;
+
+/** 
+  * @brief USB_OTG_IN_Endpoint-Specific_Register
+  */
+typedef struct 
+{
+  __IO uint32_t DIEPCTL;           /*!< dev IN Endpoint Control Reg    900h + (ep_num * 20h) + 00h */
+  uint32_t Reserved04;             /*!< Reserved                       900h + (ep_num * 20h) + 04h */
+  __IO uint32_t DIEPINT;           /*!< dev IN Endpoint Itr Reg        900h + (ep_num * 20h) + 08h */
+  uint32_t Reserved0C;             /*!< Reserved                       900h + (ep_num * 20h) + 0Ch */
+  __IO uint32_t DIEPTSIZ;          /*!< IN Endpoint Txfer Size         900h + (ep_num * 20h) + 10h */
+  __IO uint32_t DIEPDMA;           /*!< IN Endpoint DMA Address Reg    900h + (ep_num * 20h) + 14h */
+  __IO uint32_t DTXFSTS;           /*!< IN Endpoint Tx FIFO Status Reg 900h + (ep_num * 20h) + 18h */
+  uint32_t Reserved18;             /*!< Reserved  900h+(ep_num*20h)+1Ch-900h+ (ep_num * 20h) + 1Ch */
+} USB_OTG_INEndpointTypeDef;
+
+/** 
+  * @brief USB_OTG_OUT_Endpoint-Specific_Registers
+  */
+typedef struct 
+{
+  __IO uint32_t DOEPCTL;       /*!< dev OUT Endpoint Control Reg           B00h + (ep_num * 20h) + 00h */
+  uint32_t Reserved04;         /*!< Reserved                               B00h + (ep_num * 20h) + 04h */
+  __IO uint32_t DOEPINT;       /*!< dev OUT Endpoint Itr Reg               B00h + (ep_num * 20h) + 08h */
+  uint32_t Reserved0C;         /*!< Reserved                               B00h + (ep_num * 20h) + 0Ch */
+  __IO uint32_t DOEPTSIZ;      /*!< dev OUT Endpoint Txfer Size            B00h + (ep_num * 20h) + 10h */
+  __IO uint32_t DOEPDMA;       /*!< dev OUT Endpoint DMA Address           B00h + (ep_num * 20h) + 14h */
+  uint32_t Reserved18[2];      /*!< Reserved B00h + (ep_num * 20h) + 18h - B00h + (ep_num * 20h) + 1Ch */
+} USB_OTG_OUTEndpointTypeDef;
+
+
+-----------------------------USB CORE-----end-----------------------------------
+
+
+

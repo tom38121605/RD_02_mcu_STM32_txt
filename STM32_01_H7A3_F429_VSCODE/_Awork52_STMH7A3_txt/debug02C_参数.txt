@@ -1,0 +1,159 @@
+
+#include "usb_uart_tx.h"  //--add
+copy_tx_msg((uint8_t*)"pout2\r\n", 7); 
+
+
+copy_tx_msg((uint8_t*)"indma2\r\n", 8); 
+
+
+===============UART5的参数 1/1======================
+
+MX_UART5_Init( )
+
+        huart5.Instance = UART5;
+        huart5.Init.BaudRate = 115200;
+        huart5.Init.WordLength = UART_WORDLENGTH_8B;
+        huart5.Init.StopBits = UART_STOPBITS_1;
+        huart5.Init.Parity = UART_PARITY_NONE;
+        huart5.Init.Mode = UART_MODE_TX_RX;
+        huart5.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+        huart5.Init.OverSampling = UART_OVERSAMPLING_16;
+        huart5.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+        huart5.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+        huart5.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+
+
+---
+
+HAL_UART_Transmit_DMA(*huart,   *pData,   Size)  //或注释，待验证
+  
+    huart->pTxBuffPtr  = pData;
+    huart->TxXferSize  = Size;
+    huart->TxXferCount = Size;
+ 
+    huart->gState = HAL_UART_STATE_BUSY_TX;
+
+
+
+
+
+=====================UART  DMA的参数 1/3========================
+ 
+
+参数：huart5
+ HAL_UART_MspInit( * huart)
+
+        /* UART5_TX DMA Init */
+        hdma_uart5_tx.Instance = DMA1_Stream3;                                                  // DMA1.Stream3; 
+        hdma_uart5_tx.Init.Request = DMA_REQUEST_UART5_TX;                         // 或CCR, REQUEST_UART5_TX
+        hdma_uart5_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;                    // DMA_SxCR, 数据传输方向 MEMORY_TO_PERIPH
+        hdma_uart5_tx.Init.PeriphInc = DMA_PINC_DISABLE;                                  // DMA_SxCR, 外设为固定地址
+        hdma_uart5_tx.Init.MemInc = DMA_MINC_ENABLE;                                         // DMA_SxCR, memory 为地址跟随增加
+        hdma_uart5_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;         // DMA_SxCR, PBURST=0，外设 传输增量为0
+        hdma_uart5_tx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;          // DMA_SxCR, MBURST=0，memory 传输增量为0
+        hdma_uart5_tx.Init.Mode = DMA_NORMAL;                                                        // DMA_SxCR, 0, 非圆形模式
+        hdma_uart5_tx.Init.Priority = DMA_PRIORITY_LOW;                                           // DMA_SxCR, 优先级为低
+        hdma_uart5_tx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;                            //DMA_SxFCR, DMDIS=0, 或直接模式（全速FIFO）
+
+        //__HAL_LINKDMA(huart,hdmatx,hdma_uart5_tx);
+                  huart->hdmatx = &hdma_uart5_tx;  
+                  hdma_uart5_tx.Parent =  huart;       
+
+
+
+        /* UART5_RX DMA  Init */
+        hdma_uart5_rx.Instance = DMA1_Stream1;
+        hdma_uart5_rx.Init.Request = DMA_REQUEST_UART5_RX;
+        hdma_uart5_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
+        hdma_uart5_rx.Init.PeriphInc = DMA_PINC_DISABLE;
+        hdma_uart5_rx.Init.MemInc = DMA_MINC_ENABLE;
+        hdma_uart5_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+        hdma_uart5_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+        hdma_uart5_rx.Init.Mode = DMA_NORMAL;
+        hdma_uart5_rx.Init.Priority = DMA_PRIORITY_LOW;
+        hdma_uart5_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+
+        //__HAL_LINKDMA(huart,hdmarx,hdma_uart5_rx);
+                  huart->hdmarx = &hdma_uart5_rx;
+                 hdma_uart5_rx.Parent = huart;
+
+
+
+-
+
+
+=====================UART  DMA的参数 2/3========================
+ 
+HAL_DMA_Init( *hdma)     //here for uart5
+
+        if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0U)     // DMA1 or DMA2 instance       
+
+                registerValue = (hdma->Instance)->CR;
+
+                //清0下面各位
+                DMA1_Stream3->CR  &= ~( DMA_SxCR_MBURST |    //memory 传输增量  --待理解
+                                                     DMA_SxCR_PBURST |     //外设 传输增量  --待理解
+                                                     DMA_SxCR_PL  |             //优先级
+                                                     DMA_SxCR_MSIZE  |      //memory datasize
+                                                     DMA_SxCR_PSIZE  |       //外设 datasize
+                                                     DMA_SxCR_MINC  |       //memory 地址跟随模式   
+                                                     DMA_SxCR_PINC   |        //外设 地址跟随模式
+                                                     DMA_SxCR_CIRC   |         //圆形模式
+                                                     DMA_SxCR_DIR   |          //数据传输方向
+                                                     DMA_SxCR_CT     |         //当前内存是指向memory0还是memory1 （双缓冲模式下）
+                                                     DMA_SxCR_DBM);         //是否双缓冲
+
+              DMA1_Stream3->CR   |=   hdma->Init.Direction  |         //DMA_MEMORY_TO_PERIPH ， //  DMA_SxCR, 数据传输方向 MEMORY_TO_PERIPH
+                                               hdma->Init.PeriphInc  |        //DMA_PINC_DISABLE                   // DMA_SxCR, 外设为固定地址
+                                               hdma->Init.MemInc  |           //DMA_MINC_ENABLE                  // DMA_SxCR, memory 为地址跟随增加
+                                               hdma->Init.PeriphDataAlignment |    //DMA_PDATAALIGN_BYTE;     // DMA_SxCR, PBURST=0，外设 传输增量为0
+                                               hdma->Init.MemDataAlignment |      //DMA_MDATAALIGN_BYTE      // DMA_SxCR, MBURST=0，  memory 传输增量为0
+                                               hdma->Init.Mode  |                              //DMA_DMA_NORMAL              // DMA_SxCR, 0, 非圆形模式
+                                               hdma->Init.Priority;                              //DMA_DMA_PRIORITY_LOW   // DMA_SxCR, 优先级为低
+
+ 
+                        if(IS_DMA_UART_USART_REQUEST(hdma->Init.Request) != 0U)          (TX满足，RX不满足)             
+                                 DMA1_Stream3->CR |= DMA_SxCR_TRBUFF;                     //DMA_SxCR,，使能bufferable传输，待理解                      
+ 
+ 
+                 //-----读取和设置DMA的FCR寄存器-----
+ 
+                 DMA1_Stream3->FCR &=~(DMA_SxFCR_DMDIS | DMA_SxFCR_FTH);  //清零DMDIS,  FTH，或 为直接模式全速FIFO
+
+                DMA1_Stream3->FCR |= hdma->Init.FIFOMode;           //DMA_SxFCR，DMDIS=0, 不使能DMDIS
+ 
+
+                //------设置LIFCR-----
+
+                regs_dma =  DMA_CalcBaseAndBitshift(hdma);   //或0--LISR
+
+                //清LIFCR中的streaming3的所有中断标志
+                regs_dma->IFCR = 0x3FUL << (hdma->StreamIndex & 0x1FU); //= 0x3f<<22  （或22指向streaming3）
+
+            
+        hdma->ErrorCode = HAL_DMA_ERROR_NONE; 
+        hdma->State = HAL_DMA_STATE_READY;
+ 
+-----
+
+参数：hdma_uart5_tx
+DMA_CalcBaseAndBitshift(  *hdma)
+
+        stream_number = (( ( hdma->Instance) & 0xFFU) - 16U) / 24U;          // 3 ，或表示DMA_streaming3， 已验证
+        hdma->StreamIndex = flagBitshiftOffset[stream_number & 0x7U];    //  22           //已验证
+        hdma->StreamBaseAddress = (  hdma->Instance  &  (~0x3FFU));      // 0 ,  指向 LISR and LIFCR    
+
+ 
+
+=====================UART  DMA的参数 3/3========================
+
+
+参数： hdma_uart5_tx
+HAL_UART_Transmit_DMA(*huart,   *pData,   Size)  //或注释，待验证
+ 
+            hdma_uart5_tx->XferCpltCallback = UART_DMATransmitCplt;
+            hdma_uart5_tx->XferHalfCpltCallback = UART_DMATxHalfCplt;
+            hdma_uart5_tx->XferErrorCallback = UART_DMAError;
+            hdma_uart5_tx->XferAbortCallback = NULL;
+
+

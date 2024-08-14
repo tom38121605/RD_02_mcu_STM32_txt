@@ -1,0 +1,109 @@
+
+
+
+========================关于i2s引脚的参数1/1======== ============================
+
+HAL_I2S_MspInit( * hi2s)
+
+                /**I2S1 GPIO Configuration
+                PA4                 ------> I2S1_WS
+                PA5                 ------> I2S1_CK
+                PA6                 ------> I2S1_SDI
+                PA7                 ------> I2S1_SDO
+                PC4                 ------> I2S1_MCK
+                */
+                GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7;
+                GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+                GPIO_InitStruct.Pull = GPIO_NOPULL;
+                GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+                GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+                HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+                GPIO_InitStruct.Pin = GPIO_PIN_4;
+                GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+                GPIO_InitStruct.Pull = GPIO_NOPULL;
+                GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+                GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+                HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+
+
+========================关于hdma_i2s_tx的参数1/1======== ============================
+
+HAL_I2S_MspInit( * hi2s)
+
+                /* I2S1 DMA Init */
+                /* SPI1_TX Init */
+                hdma_i2s_tx.Instance = DMA1_Stream5;
+                hdma_i2s_tx.Init.Request = DMA_REQUEST_SPI1_TX;
+                hdma_i2s_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
+                hdma_i2s_tx.Init.PeriphInc = DMA_PINC_DISABLE;
+                hdma_i2s_tx.Init.MemInc = DMA_MINC_ENABLE;
+                hdma_i2s_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+                hdma_i2s_tx.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
+                hdma_i2s_tx.Init.Mode = DMA_CIRCULAR;
+                hdma_i2s_tx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
+                hdma_i2s_tx.Init.FIFOMode = DMA_FIFOMODE_ENABLE;
+                hdma_i2s_tx.Init.FIFOThreshold = DMA_FIFO_THRESHOLD_FULL;
+                hdma_i2s_tx.Init.MemBurst = DMA_MBURST_SINGLE;
+                hdma_i2s_tx.Init.PeriphBurst = DMA_PBURST_SINGLE;
+
+
+                __HAL_LINKDMA(hi2s,hdmatx,hdma_i2s_tx);
+                               hi2s->hdmatx = &hdma_i2s_tx;  
+                               hdma_i2s_tx.Parent =  hi2s;       
+
+
+========================关于hi2s的参数1/3======== ============================
+
+MX_I2S1_Init( )
+
+        hi2s.Instance = SPI1;
+        hi2s.Init.Mode = I2S_MODE_MASTER_FULLDUPLEX;
+        hi2s.Init.Standard = I2S_STANDARD_PHILIPS;
+ 
+        hi2s.Init.DataFormat = I2S_DATAFORMAT_32B;
+ 
+        hi2s.Init.MCLKOutput = I2S_MCLKOUTPUT_DISABLE;
+        hi2s.Init.AudioFreq = I2S_AUDIOFREQ_HZ;
+        hi2s.Init.CPOL = I2S_CPOL_LOW;
+        hi2s.Init.FirstBit = I2S_FIRSTBIT_MSB;
+        hi2s.Init.WSInversion = I2S_WS_INVERSION_DISABLE;
+        hi2s.Init.Data24BitAlignment = I2S_DATA_24BIT_ALIGNMENT_RIGHT;
+        hi2s.Init.MasterKeepIOState = I2S_MASTER_KEEP_IO_STATE_DISABLE;
+
+
+========================hi2s参数2/3===================================
+
+
+HAL_I2S_MspInit( * hi2s)
+
+                ......
+
+                __HAL_LINKDMA(hi2s,hdmatx,hdma_i2s_tx);
+                               hi2s->hdmatx = &hdma_i2s_tx;  
+                               hdma_i2s_tx.Parent =  hi2s;       
+
+
+
+========================hi2s参数3/3===================================
+
+
+HAL_I2S_Transmit_DMA(  *hi2s,   *pData,    Size)
+  
+       
+        hi2s->State                 = HAL_I2S_STATE_BUSY_TX;
+        hi2s->ErrorCode         = HAL_I2S_ERROR_NONE;
+        hi2s->pTxBuffPtr        = pData;                                    // i2s_data_buffer --   hi2s->pTxBuffPtr  
+        hi2s->TxXferSize        = Size;
+        hi2s->TxXferCount    = Size;
+
+        /* Init field not used in handle to zero */
+        hi2s->pRxBuffPtr        = NULL;
+        hi2s->RxXferSize        =0;
+        hi2s->RxXferCount =0;
+ 
+        hi2s->hdmatx->XferHalfCpltCallback = I2S_DMATxHalfCplt;      //half 中断服务程序
+        hi2s->hdmatx->XferCpltCallback = I2S_DMATxCplt;                    //complete 中断服务程序
+ 
+

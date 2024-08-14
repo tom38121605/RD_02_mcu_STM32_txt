@@ -1,0 +1,133 @@
+ 
+//enum usbState
+ 
+    USB_DISCONNECTED,
+    USB_PLUGGED,
+    USB_CONNECTED,
+    USB_CONFIGURED,
+    USB_UNPLUGGED
+ 
+  
+// Device Status 
+
+#define USBD_STATE_DEFAULT                                0x01U
+#define USBD_STATE_ADDRESSED                            0x02U
+#define USBD_STATE_CONFIGURED                           0x03U
+#define USBD_STATE_SUSPENDED                              0x04U
+
+
+//enum
+ 
+  HAL_PCD_STATE_RESET   = 0x00,
+  HAL_PCD_STATE_READY   = 0x01,
+  HAL_PCD_STATE_ERROR   = 0x02,
+  HAL_PCD_STATE_BUSY    = 0x03,
+  HAL_PCD_STATE_TIMEOUT = 0x04
+ 
+
+
+========================state============================
+
+
+flow： 
+
+         StartDefaultTask -- (Usb.update)  --  InterfaceUsbUpdate -- (Usb.init) -- MX_USB_DEVICE_Init   
+
+
+--------------------------------------------------------------------
+
+
+//持续执行Default任务
+StartDefaultTask(  *argument)  
+        ......忽略
+    
+                //Usb.update();                   
+                     InterfaceUsbUpdate        
+
+---------
+
+ //设置usb控制引脚，usb初始化，使能usb时钟， 使能usb的OTG_FS中断, 激活usb收发器, 设为从机模式，使能输入输出端点中断.。
+ InterfaceUsbUpdate( )  
+ 
+        if(isVbusHigh())                                                                 //插入usb
+  
+                if (UsbGetState() == USB_DISCONNECTED)               
+                        //Usb.init(usb_rx_callback_circular_buf);  
+                               MX_USB_DEVICE_Init(usb_rx_callback_circular_buf);          
+
+                        //UsbSetState(USB_CONNECTED);
+                            state = USB_CONNECTED;                //这里   
+               
+                else
+                    if (UsbGetState() == USB_CONNECTED)
+                
+                         //if(isUsbConfigured())                  
+                             if(hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED)
+                                   //UsbSetState(USB_CONFIGURED);
+                                        state = USB_CONFIGURED;                             //这里   
+
+
+
+
+
+
+========================hUsbDeviceFS.dev_state============================
+
+flow：  (USBD_STATE_DEFAULT)
+
+         StartDefaultTask -- *** -- MX_USB_DEVICE_Init   -- USBD_Init    
+
+
+--------------------------------------------------------------------
+
+
+
+MX_USB_DEVICE_Init(  void(*rx_callback)( *ptr,  len)  ) 
+
+               ......忽略
+
+                //USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS);
+
+                       hUsbDeviceFS->dev_state = USBD_STATE_DEFAULT;
+
+
+
+
+
+
+
+========================hpcd_USB_OTG_FS->State============================
+
+
+
+flow：  ( USBD_STATE_DEFAULT -- HAL_PCD_STATE_READY )
+
+         StartDefaultTask -- *** -- MX_USB_DEVICE_Init   -- USBD_Init  -- USBD_LL_Init -- HAL_PCD_Init  
+
+
+--------------------------------------------------------------------
+
+
+HAL_PCD_Init(  *hpcd)
+ 
+        USBx = hpcd->Instance;         //=USB_OTG_FS
+
+
+        if (hpcd_USB_OTG_FS->State == HAL_PCD_STATE_RESET)      //yes 
+
+                //设置usb的5个引脚， 使能 USB FS 时钟，使能系统配置控制时钟，设置usb的中断优先级为6 ，使能usb的OTG_FS中断
+                HAL_PCD_MspInit(hpcd);             
+
+        hpcd->State = HAL_PCD_STATE_BUSY;        //这里
+
+
+        ......忽略
+
+
+        USB_DevInit(hpcd->Instance, hpcd->Init) ;
+
+        hpcd->State = HAL_PCD_STATE_READY;        //这里
+
+
+  
+  

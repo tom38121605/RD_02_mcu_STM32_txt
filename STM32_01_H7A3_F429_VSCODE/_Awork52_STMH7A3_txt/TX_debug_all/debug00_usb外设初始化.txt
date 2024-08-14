@@ -1,0 +1,517 @@
+
+。usb外设初始化
+
+
+==============================usb外设初始化====================================
+ 
+过程：    StartDefaultTask  --  MX_USB_DEVICE_Init
+
+flow： 
+
+         StartDefaultTask -- (Usb.update)  --  InterfaceUsbUpdate -- (Usb.init) -- MX_USB_DEVICE_Init   
+ 
+         MX_USB_DEVICE_Init -- USBD_Init -- USBD_RegisterClass -- USBD_AUDIO_RegisterInterface -- USBD_Start
+         USBD_Init -- USBD_LL_Init -- HAL_PCD_Init -- HAL_PCD_MspInit -- USB_CoreInit -- USB_SetCurrentMode -- USB_DevInit
+
+
+------------------------------------------------------------------------------------------
+
+//持续执行Default任务
+StartDefaultTask(  *argument) 
+ 
+        ......忽略
+  
+        while (1)  
+
+                ......忽略
+    
+                //Usb.update();                   //这里 
+                     InterfaceUsbUpdate       //设置usb控制引脚，usb初始化，使能usb时钟， 使能usb的OTG_FS中断, 激活usb收发器, 设为从机模式，使能输入输出端点中断.。
+
+
+----------------------------------------------- 
+
+//设置usb控制引脚，usb初始化，使能usb时钟， 使能usb的OTG_FS中断, 激活usb收发器, 设为从机模式，使能输入输出端点中断.。
+ InterfaceUsbUpdate( )  
+ 
+        if(isVbusHigh())                                                                 //插入usb
+  
+                if (UsbGetState() == USB_DISCONNECTED)               
+                        //Usb.init(usb_rx_callback_circular_buf);      //这里   （函数的2个参数如何传入，答：这里不带参数只是传递函数指针，并没有运行函数。如果带参数传入则运行函数）
+
+                               //设置usb控制引脚，usb初始化，使能usb时钟， 使能usb的OTG_FS中断, 激活usb收发器, 输入输出端口初始化,使能输入输出端点中断.。
+                               MX_USB_DEVICE_Init(usb_rx_callback_circular_buf);          
+
+                        //UsbSetState(USB_CONNECTED);
+                            state = USB_CONNECTED;
+               
+                else
+                    if (UsbGetState() == USB_CONNECTED)
+                
+                         //if(isUsbConfigured())                  
+                             if(hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED)
+                                   //UsbSetState(USB_CONFIGURED);
+                                        state = USB_CONFIGURED;
+
+ ------
+ 
+//设置usb控制引脚
+//初始化hpcd_USB_OTG_FS参数
+//hpcd_USB_OTG_FS初始参数设置。设置usb引脚， 使能 USB FS 时钟，中断优先级为6 ，使能usb的OTG_FS中断, 激活usb收发器, 设为从机模式,使能输入输出端点中断.
+//函数指针pUserData指向audio_class_interface， 把配置符数组USBD_AUDIO_ConfigDescriptor，赋值给USBD_AUDIO_CfgDesc 
+//打开usb的全局中断，开启时钟，重新连接usb和枚举
+MX_USB_DEVICE_Init(  void(*rx_callback)( *ptr,  len)  ) 
+
+              //设置usb控制引脚
+               GPIO_InitTypeDef GPIO_InitStruct;
+
+               //PG.6   PowerSwitch
+               GPIO_InitStruct.Pin   = USB_PowerSwitchOn_Pin;            //GPIO_PIN_6
+               GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
+               GPIO_InitStruct.Pull  = GPIO_NOPULL;
+               GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+               HAL_GPIO_Init(USB_PowerSwitchOn_GPIO_Port, &GPIO_InitStruct);     //GPIOG
+
+               //PG.7   OverCurrent
+               GPIO_InitStruct.Pin   = USB_OverCurrent_Pin;                 //GPIO_PIN_7
+               GPIO_InitStruct.Mode  = GPIO_MODE_INPUT;
+               GPIO_InitStruct.Pull  = GPIO_NOPULL;
+               GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+               HAL_GPIO_Init(USB_OverCurrent_GPIO_Port, &GPIO_InitStruct);      //GPIOG
+
+               HAL_GPIO_WritePin(USB_PowerSwitchOn_GPIO_Port, USB_PowerSwitchOn_Pin, GPIO_PIN_RESET);     //PG.6=0
+
+                
+                //USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS);
+
+                       //初始化hpcd_USB_OTG_FS参数
+
+                       hUsbDeviceFS->pClass = NULL;
+                       hUsbDeviceFS->pUserData = NULL;
+                       hUsbDeviceFS->pConfDesc = NULL; 
+                       hUsbDeviceFS->dev_state = USBD_STATE_DEFAULT;
+
+                       hUsbDeviceFS->pDesc =  FS_Desc;
+                       hUsbDeviceFS->id = DEVICE_FS;                    // =0
+
+                       USBD_LL_Init(hUsbDeviceFS);     // hpcd_USB_OTG_FS初始参数设置。设置usb引脚， 使能 USB FS 时钟，中断优先级为6 ，使能usb的OTG_FS中断, 
+                                                                                      激活usb收发器, 输入输出端口初始化,使能输入输出端点中断.
+ 
+
+                //把配置符数组USBD_AUDIO_ConfigDescriptor，赋值给hUsbDeviceFS->pConfDesc   
+                //USBD_RegisterClass(&hUsbDeviceFS, USBD_AUDIO_CLASS);
+                          hUsbDeviceFS->pClass = USBD_AUDIO_CLASS;                              // hUsbDeviceFS->pClass =USBD_AUDIO_CLASS   //等于USBD_AUDIO     //这里 
+
+                           if (pdev->pClass->GetFSConfigDescriptor != NULL)     
+                                   //pdev->pConfDesc = pdev->pClass->GetFSConfigDescriptor(&len);                    
+                                   //    hUsbDeviceFS->pConfDesc = USBD_AUDIO_GetCfgDesc(&len);                  
+                                             hUsbDeviceFS->pConfDesc = USBD_AUDIO_ConfigDescriptor;        //把配置符数组赋值给结构体            //这里  
+
+
+                //函数指针pUserData指向audio_class_interface， 把配置符数组USBD_AUDIO_ConfigDescriptor，赋值给USBD_AUDIO_CfgDesc 
+                //USBD_AUDIO_RegisterInterface(&hUsbDeviceFS, &audio_class_interface);
+
+                      hUsbDeviceFS->pUserData=audio_class_interface;   //这个pUserData相当于func函数集结构体
+
+                      //audio_class_interface->GetConfigDesc(&USBD_AUDIO_CfgDesc, &USBD_AUDIO_CfgDescSize, aifc->private_data);
+                      //     AUDIO_USB_GetConfigDesc (   &USBD_AUDIO_CfgDesc,     &USBD_AUDIO_CfgDescSize,      audio_class_interface->private_data);
+                                       USBD_AUDIO_CfgDescSize = USB_AUDIO_GetConfigDescriptor(USBD_AUDIO_CfgDesc);            
+                                        USBD_AUDIO_CfgDesc = USBD_AUDIO_ConfigDescriptor;                                                                 //数据流
+
+
+               //功能：打开usb的全局中断，开启时钟，重新连接usb和枚举
+                //USBD_Start(&hUsbDeviceFS);
+                //    USBD_LL_Start(hUsbDeviceFS);
+                //        HAL_PCD_Start(hUsbDeviceFS->pData);       
+                                 HAL_PCD_Start(hpcd_USB_OTG_FS);      // 打开usb的全局中断，开启时钟，重新连接usb和枚举
+
+
+------------
+
+//功能：打开usb的全局中断，开启时钟，重新连接usb和枚举
+参数：hpcd_USB_OTG_FS
+ HAL_PCD_Start( *hpcd)
+ 
+        USBx = hpcd->Instance;   //USB_OTG_FS
+ 
+        if ((hpcd->Init.battery_charging_enable == 1)  &&    (hpcd->Init.phy_itface != USB_OTG_ULPI_PHY))   //no
+
+                USBx->GCCFG |= USB_OTG_GCCFG_PWRDWN;    //GCCFG.16=1, 开启usb传输  
+       
+        //__HAL_PCD_ENABLE(hpcd);
+        //   USB_EnableGlobalInt(USB_OTG_FS);
+                   USBx->GAHBCFG |= USB_OTG_GAHBCFG_GINT;   //GAHBCFG.0=1, 打开usb的全局中断
+
+         //USB_DevConnect(USB_OTG_FS);
+
+             USBx_PCGCCTL &= ~(USB_OTG_PCGCCTL_STOPCLK | USB_OTG_PCGCCTL_GATECLK);  //PCGCCTL.1-0=00, 不停止时钟，恢复usb会话，待理解
+             USBx_DEVICE->DCTL &= ~USB_OTG_DCTL_SDIS;    //DCTL.1=0, 重新连接，重新usb枚举
+
+----------
+
+ // hpcd_USB_OTG_FS初始参数设置。 
+//设置usb引脚， 使能 USB FS 时钟，中断优先级为6 ，使能usb的OTG_FS中断；激活usb寄存器, 激活usb收发器；设为从机模式，输入输出端口初始化
+           设置DIEPTXF端点0-15的txfifo的字节深度和起始地址，GCCFG使能usb sense，PCGCCTL重新开启usb时钟 ；DCFG 设置为full speed，
+           TXFFLSH清零所有的txfifo 及清零rxfifo，清零输入输出端点的所有中断，DIEPCTL，DOEPCTL使能输入输出端点中断 ，GINTMSK使能端口相关中断
+//初始化FIFO , 待理解
+参数：hUsbDeviceFS
+USBD_LL_Init( *pdev)
+ 
+    /* Init USB_IP */
+    if (pdev->id == DEVICE_FS)
+     
+       //互联
+        hpcd_USB_OTG_FS.pData  = hUsbDeviceFS；
+        hUsbDeviceFS->pData       =  &hpcd_USB_OTG_FS; 
+
+        hpcd_USB_OTG_FS.Instance =  USB_OTG_FS;
+ 
+        hpcd_USB_OTG_FS.Init.dev_endpoints =  5;
+        hpcd_USB_OTG_FS.Init.ep0_mps       =      0x40;
+        hpcd_USB_OTG_FS.Init.Sof_enable    = ENABLE;
+ 
+        hpcd_USB_OTG_FS.Init.speed               = PCD_SPEED_FULL;
+        hpcd_USB_OTG_FS.Init.dma_enable          = DISABLE;
+        hpcd_USB_OTG_FS.Init.phy_itface          = PCD_PHY_EMBEDDED;
+        hpcd_USB_OTG_FS.Init.low_power_enable    = DISABLE;
+        hpcd_USB_OTG_FS.Init.lpm_enable          = DISABLE;
+        hpcd_USB_OTG_FS.Init.vbus_sensing_enable = ENABLE;
+        hpcd_USB_OTG_FS.Init.use_dedicated_ep1   = DISABLE;
+
+        HAL_PCD_Init(&hpcd_USB_OTG_FS)；  // 设置usb引脚， 使能 USB FS 时钟，中断优先级为6 ，使能usb的OTG_FS中断；激活usb寄存器, 设为从机模式,使能输入输出端点中断.
+ 
+        //功能： 初始化FIFO 
+        USBD_LL_Setup_Fifo();    
+
+ -----
+
+//功能： 初始化FIFO  
+USBD_LL_Setup_Fifo( ) 
+
+    uint16_t   tx_fifo_size[5]        = {0};          /* TX_FIFO allocation*/
+    uint8_t     max_tx_ep_num      = 0;           /* The Max TX_EP_NUMBER*/
+    uint16_t   tx_fifo_used_size    = 0;            /* total usage of TX_FIFO*/
+    uint16_t   rx_fifo_size              = 0;             /* total usage of RX_FIFO*/
+
+        ......
+
+    //tx_fifo_used_size = (USB_AUDIO_GetConfigDescriptor(0) + 3) / 4;             //这里
+          tx_fifo_used_size =   CONFIG_DESCRIPTOR_SIZE.
+        ......
+
+
+----------------------
+
+
+功能：设置usb引脚， 使能 USB FS 时钟，中断优先级为6 ，使能usb的OTG_FS中断；激活usb寄存器, 激活usb收发器；设为从机模式，输入输出端口初始化
+           设置DIEPTXF端点0-15的txfifo的字节深度和起始地址，GCCFG使能usb sense，PCGCCTL重新开启usb时钟 ；DCFG 设置为full speed，
+           TXFFLSH清零所有的txfifo 及清零rxfifo，清零输入输出端点的所有中断，DIEPCTL，DOEPCTL使能输入输出端点中断 ，GINTMSK使能端口相关中断
+
+参数：hpcd_USB_OTG_FS
+HAL_PCD_Init(  *hpcd)
+ 
+        USBx = hpcd->Instance;         //=USB_OTG_FS
+
+        if (hpcd_USB_OTG_FS->State == HAL_PCD_STATE_RESET)      //yes 
+
+                //设置usb的5个引脚， 使能 USB FS 时钟，使能系统配置控制时钟，设置usb的中断优先级为6 ，使能usb的OTG_FS中断
+                HAL_PCD_MspInit(hpcd);             
+
+        hpcd->State = HAL_PCD_STATE_BUSY;
+
+        if ((USBx->CID & ( 1 << 8)) == 0)     //0x1200, yes
+                hpcd->Init.dma_enable = 0;
+ 
+        //__HAL_PCD_DISABLE(hpcd);   //P1274
+        //    USB_DisableGlobalInt
+                     USBx->GAHBCFG &= ~USB_OTG_GAHBCFG_GINT;     //GAHBCFG.0=0， 关闭usb的全局中断
+
+        //激活usb寄存器, 激活usb收发器
+        //USB_CoreInit(USB_OTG_FS, hpcd->Init) ; 
+                USBx->GUSBCFG |= USB_OTG_GUSBCFG_PHYSEL;      //GUSBCFG.6=1，选择快速usb，对FS只有只读权限 , 这个操作在FS中可以忽略 
+                ret = USB_CoreReset(USBx);                                             //复位usb core寄存器
+                if (cfg.battery_charging_enable == 0U)       //yes               
+                        USBx->GCCFG |= USB_OTG_GCCFG_PWRDWN;     //GCCFG.16=1, 激活usb收发器
+
+        //设置当前为从机模式
+       //USB_SetCurrentMode(hpcd->Instance, USB_DEVICE_MODE);
+               USBx->GUSBCFG |= USB_OTG_GUSBCFG_FDMOD;   //GUSBCFG.30=1, 设置为从机模式
+
+
+       //输入端口初始化
+        for (i = 0; i < hpcd->Init.dev_endpoints; i++)   //5
+  
+                hpcd->IN_ep[i].is_in = 1;
+                hpcd->IN_ep[i].num = i;
+                hpcd->IN_ep[i].tx_fifo_num = i;
+ 
+                hpcd->IN_ep[i].type = EP_TYPE_CTRL;
+                hpcd->IN_ep[i].maxpacket = 0;
+                hpcd->IN_ep[i].xfer_buff = 0;
+                hpcd->IN_ep[i].xfer_len = 0;
+
+
+       //输出端口初始化
+        for (i = 0; i < hpcd->Init.dev_endpoints; i++)
+
+                hpcd->OUT_ep[i].is_in = 0;
+                hpcd->OUT_ep[i].num = i;
+   
+                hpcd->OUT_ep[i].type = EP_TYPE_CTRL;
+                hpcd->OUT_ep[i].maxpacket = 0;
+                hpcd->OUT_ep[i].xfer_buff = 0;
+                hpcd->OUT_ep[i].xfer_len = 0;
+
+
+       // 设置DIEPTXF端点0-15的txfifo的字节深度和起始地址，GCCFG使能usb sense，PCGCCTL重新开启usb时钟 ；DCFG 设置为full speed，
+           TXFFLSH清零所有的txfifo 及清零rxfifo，清零输入输出端点的所有中断，DIEPCTL，DOEPCTL使能输入输出端点中断 ，GINTMSK使能端口相关中断
+        USB_DevInit(hpcd->Instance, hpcd->Init) ;
+ 
+
+        hpcd->USB_Address = 0;
+        hpcd->State = HAL_PCD_STATE_READY;
+ 
+        //USB_DevDisconnect(hpcd->Instance);
+                  USBx_PCGCCTL &= ~(USB_OTG_PCGCCTL_STOPCLK | USB_OTG_PCGCCTL_GATECLK);     //PCGCCTL.1-0=00, 不停止时钟，恢复usb会话，待理解
+                  USBx_DEVICE->DCTL |= USB_OTG_DCTL_SDIS;                                                                          //产生一个断开连接的事件
+
+
+----------
+
+功能：设置usb的5个引脚， 使能 USB FS 时钟，使能系统配置控制时钟，设置usb的中断优先级为6 ，使能usb的OTG_FS中断
+参数：hpcd_USB_OTG_FS
+HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
+ 
+        if(pcdHandle->Instance==USB_OTG_FS)   // 是快速usb，yes        
+                            
+                //PA8                 ------> USB_OTG_FS_SOF
+                //PA9                 ------> USB_OTG_FS_VBUS
+                //PA10                 ------> USB_OTG_FS_ID
+                //PA11                 ------> USB_OTG_FS_DM
+                //PA12                 ------> USB_OTG_FS_DP 
+                
+                GPIO_InitStruct.Pin = USB_SOF_Pin|USB_ID_Pin|USB_DM_Pin|USB_DP_Pin;  //PA8, PA10,PA11, PA12
+                GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+                GPIO_InitStruct.Pull = GPIO_NOPULL;
+                GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+                GPIO_InitStruct.Alternate = GPIO_AF10_OTG_FS;
+                HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);                  //设置PA8, PA11, PA12的模式为AF，无上拉，高速
+
+                GPIO_InitStruct.Pin = USB_VBUS_Pin;
+                GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+                GPIO_InitStruct.Pull = GPIO_NOPULL;
+                HAL_GPIO_Init(USB_VBUS_GPIO_Port, &GPIO_InitStruct);      //设置PA9的模式为输入，无上拉 
+
+                HAL_GPIO_WritePin(USB_DP_GPIO_Port, USB_DP_Pin, GPIO_PIN_RESET);    //设置PA12=0
+
+                __HAL_RCC_USB_OTG_FS_CLK_ENABLE();
+
+                         RCC->AHB2ENR |= (RCC_AHB2ENR_OTGFSEN));     //AHB2ENR.7=1, 使能 USB FS 时钟
+
+                         //__HAL_RCC_SYSCFG_CLK_ENABLE();           
+ 
+                                       tmpreg =0; 
+                                        SET_BIT(RCC->APB2ENR, RCC_APB2ENR_SYSCFGEN);  //APB2ENR.14=1, 使能系统配置控制时钟
+
+                                        tmpreg = READ_BIT(RCC->APB2ENR, RCC_APB2ENR_SYSCFGEN);   //=APB2ENR.14
+                                        UNUSED(tmpreg); 
+
+                HAL_NVIC_SetPriority(OTG_FS_IRQn, PRIO_OTG_FS_IRQn, 0);     //设置usb的中断优先级为6 ，中断优先级的数字越小优先级越高 （任务task的优先级则相反数字越大优先级越高）
+
+                 //HAL_NVIC_EnableIRQ(OTG_FS_IRQn);     //OTG_FS_IRQn=67
+                 //    NVIC_EnableIRQ(IRQn);
+                 //       __NVIC_EnableIRQ(IRQn);
+                                NVIC->ISER[ IRQn  >> 5 ] =  1  << (IRQn & 0x1F ) ;         //使能usb的OTG_FS中断
+
+
+
+-------------
+
+//激活usb寄存器
+参数：USB_OTG_FS,  hpcd_USB_OTG_FS->Init
+USB_CoreInit( *USBx,   cfg)
+ 
+        HAL_StatusTypeDef   ret;
+
+        if (cfg.phy_itface == USB_OTG_ULPI_PHY) 
+                ......(忽略)
+        
+        else  
+
+                USBx->GUSBCFG |= USB_OTG_GUSBCFG_PHYSEL;      //GUSBCFG.6=1，选择快速usb，对FS只有只读权限 , 这个操作在FS中可以忽略 
+                ret = USB_CoreReset(USBx);                                             //复位usb core寄存器
+
+                if (cfg.battery_charging_enable == 0U)  //yes               
+                        USBx->GCCFG |= USB_OTG_GCCFG_PWRDWN;     //GCCFG.16=1, 激活usb收发器
+
+        if (cfg.dma_enable == 1)     //无执行，忽略       
+                USBx->GAHBCFG |= USB_OTG_GAHBCFG_HBSTLEN_2;
+                USBx->GAHBCFG |= USB_OTG_GAHBCFG_DMAEN;          //这是高速usb的寄存器
+         
+
+ ----------
+
+//复位usb core寄存器
+参数：USB_OTG_FS
+ USB_CoreReset(  *USBx)
+ 
+        uint32_t count = 0U;
+
+        /* Wait for AHB master IDLE state. */
+        do
+        {
+                if (++count > 200000U)
+                {
+                        return HAL_TIMEOUT;
+                }
+        } while ((USBx->GRSTCTL & USB_OTG_GRSTCTL_AHBIDL) == 0U);  //等待GRSTCTL.31=1跳出循环，即等待空闲模式
+
+        count = 0U;
+        USBx->GRSTCTL |= USB_OTG_GRSTCTL_CSRST;   //GRSTCTL.0=1, 复位usb core寄存器
+
+        do
+        {
+                if (++count > 200000U)
+                {
+                        return HAL_TIMEOUT;
+                }
+        } while ((USBx->GRSTCTL & USB_OTG_GRSTCTL_CSRST) == USB_OTG_GRSTCTL_CSRST);  //等待GRSTCTL.0=0跳出循环，或完成复位
+
+
+
+ ------------
+
+
+// 设置DIEPTXF端点0-15的txfifo的字节深度和起始地址，GCCFG使能usb sense，PCGCCTL重新开启usb时钟 ；DCFG 设置为full speed，
+    TXFFLSH清零所有的txfifo 及清零rxfifo，清零输入输出端点的所有中断，DIEPCTL，DOEPCTL使能输入输出端点中断 ，GINTMSK使能端口相关中断
+
+参数：USB_OTG_FS,  hpcd_USB_OTG_FS->Init
+USB_DevInit(  *USBx,   cfg)
+ 
+       USBx_BASE =  USBx;
+
+        for (i = 0 ; i < 15 ; i++) 
+                USBx->DIEPTXF[i] = 0 ;  //关于端点0-15的txfifo的字节深度和起始地址， 待理解  
+
+        //使能usb sense
+        if ( cfg.vbus_sensing_enable == 0 )  //n 
+                ......  (忽略)
+     
+        else  //yes  
+                USBx->GCCFG &= ~USB_OTG_GCCFG_NOVBUSSENS;   //GCCFG.21=0,  硬件使能usb sense
+                USBx->GCCFG |= USB_OTG_GCCFG_VBUSBSEN;              //GCCFG.19=1,  软件使能usb sense
+ 
+
+        USBx_PCGCCTL = 0;                                                               //bit4,1-0=0,00, 重新开启usb时钟  （当出问题或挂起休眠时这些位为1）
+        USBx_DEVICE->DCFG |= DCFG_FRAME_INTERVAL_80;      //DCFG.12-11=00, 帧完成度，待理解
+
+        if (cfg.phy_itface == USB_OTG_ULPI_PHY)        
+                 ......  (忽略)                
+       
+        else      
+                //USB_SetDevSpeed(USBx, USB_OTG_SPEED_FULL);
+                        USBx_DEVICE->DCFG |= 3;                                           //DCFG.1-0=11, 设置为full speed
+
+        //USB_FlushTxFifo(USBx, 0x10) ；
+              USBx->GRSTCTL = (USB_OTG_GRSTCTL_TXFFLSH | (num << 16));    //TXFFLSH.10-6,5=16,1,  清零所有的txfifo 
+
+        USB_FlushRxFifo(USBx) ；
+               USBx->GRSTCTL = USB_OTG_GRSTCTL_RXFFLSH;   //GRSTCTL.4=1, 清零rxfifo
+
+        USBx_DEVICE->DIEPMSK = 0;           //清零输入端点的所有中断
+        USBx_DEVICE->DOEPMSK = 0;         //清零输出端点的所有中断
+        USBx_DEVICE->DAINTMSK = 0;         //清零细分输入输出所有端点的中断
+
+        for (i = 0; i < cfg.dev_endpoints; i++)   //5
+        
+                if ((USBx_INEP(i)->DIEPCTL & USB_OTG_DIEPCTL_EPENA) == USB_OTG_DIEPCTL_EPENA) //DIEPCTL.31==1，如果使能了该端点
+   
+                        if (i == 0)      //端点0             
+                                USBx_INEP(i)->DIEPCTL = USB_OTG_DIEPCTL_SNAK; //DIEPCTL.27=1, 设置NAK ， 待理解
+                         
+                        else      //端点1-5                    
+                                 USBx_INEP(i)->DIEPCTL = USB_OTG_DIEPCTL_EPDIS | USB_OTG_DIEPCTL_SNAK;     //DIEPCTL..30,27=1,1, 停止传输，设置NAK, 待理解       
+                
+                else    //yes            
+                        USBx_INEP(i)->DIEPCTL = 0;    //清零   DIEPCTL   ，使能输入端点中断      
+
+                USBx_INEP(i)->DIEPTSIZ     = 0;                  //清零fifo的数据包的count和size， 待理解
+                USBx_INEP(i)->DIEPINT       = 0xFB7F;          //写1或清零该位，待理解
+
+
+        for (i = 0; i < cfg.dev_endpoints; i++)
+     
+                if ((USBx_OUTEP(i)->DOEPCTL & USB_OTG_DOEPCTL_EPENA) == USB_OTG_DOEPCTL_EPENA)     //同上
+                
+                        if (i == 0)                      
+                                USBx_OUTEP(i)->DOEPCTL = USB_OTG_DOEPCTL_SNAK;    //同上
+                      
+                        else                       
+                                USBx_OUTEP(i)->DOEPCTL = USB_OTG_DOEPCTL_EPDIS | USB_OTG_DOEPCTL_SNAK;   //同上
+                 
+                else     //yes          
+                        USBx_OUTEP(i)->DOEPCTL = 0U;     //清零   DOEPCTL   ，使能输出端点中断     
+               
+
+                USBx_OUTEP(i)->DOEPTSIZ = 0U;                       //清零fifo的数据包的count和size， 待理解
+                USBx_OUTEP(i)->DOEPINT        = 0xFB7FU;       //写1或清零该位，待理解
+        
+
+        USBx_DEVICE->DIEPMSK &= ~(USB_OTG_DIEPMSK_TXFURM);     //DIEPMSK.8=0，屏蔽中断 (这个位只在HS中有)
+
+        USBx->GINTMSK = 0U;                //屏蔽所有中断
+ 
+        USBx->GINTSTS = 0xBFFFFFFF;   //清除所有已悬挂的中断标志
+
+        /* Enable the common interrupts */
+        if (cfg.dma_enable == 0)
+ 
+                USBx->GINTMSK |= USB_OTG_GINTMSK_RXFLVLM;    //GINTMSK.4=1, 使能fifo中断
+    
+
+        //USBx->GINTMSK |= USB_OTG_GINTMSK_USBSUSPM | USB_OTG_GINTMSK_USBRST |
+                                                                         USB_OTG_GINTMSK_ENUMDNEM | USB_OTG_GINTMSK_IEPINT |
+                                                                         USB_OTG_GINTMSK_OEPINT         | USB_OTG_GINTMSK_IISOIXFRM |
+                                                                         USB_OTG_GINTMSK_PXFRM_IISOOXFRM | USB_OTG_GINTMSK_WUIM;
+
+                USBx->GINTMSK |= 1<<11 | 1<<12 |  1<<13 | 1<<18 |1<<19    | 1<<20 |1<<21 | 1<<31; //GINTMSK.11-13,18-21=111,1111  //使能端口相关中断
+
+
+        if (cfg.Sof_enable != 0)  //yes
+                USBx->GINTMSK |= USB_OTG_GINTMSK_SOFM;            //GINTMSK.3=1, 使能帧启动中断
+
+        if (cfg.vbus_sensing_enable == 1)   //yes
+                USBx->GINTMSK |= (USB_OTG_GINTMSK_SRQIM | USB_OTG_GINTMSK_OTGINT);       //GINTMSK.30,2=11, 使能session和OTG中断
+ 
+
+-----------
+
+参数：USB_OTG_FS,   0x10
+ USB_FlushTxFifo( *USBx,   num)
+
+     USBx->GRSTCTL = (USB_OTG_GRSTCTL_TXFFLSH | (num << 6));      //TXFFLSH.10-6,5=16,1,  清零所有的txfifo
+
+     do
+     {
+            if (++count > 200000U) 
+                 return HAL_TIMEOUT;
+  
+     } while ((USBx->GRSTCTL & USB_OTG_GRSTCTL_TXFFLSH) == USB_OTG_GRSTCTL_TXFFLSH);        //等待直到 TXFFLSH.5=0 
+
+ 
+-------------- 
+
+
+USB_FlushRxFifo( *USBx) 
+
+      USBx->GRSTCTL = USB_OTG_GRSTCTL_RXFFLSH;   //GRSTCTL.4=1, 清零rxfifo
+
+      do
+      {
+               if (++count > 200000U) 
+                      return HAL_TIMEOUT;
+ 
+       } while ((USBx->GRSTCTL & USB_OTG_GRSTCTL_RXFFLSH) == USB_OTG_GRSTCTL_RXFFLSH);  //等待GRSTCTL.4=0
+
+
+

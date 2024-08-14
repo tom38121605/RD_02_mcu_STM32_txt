@@ -1,0 +1,794 @@
+  
+。收到pc的设备描述符请求存到 hpcd_USB_OTG_FS->Setup
+。把设备描述符存入到 大epin->xfer_buff
+。把设备描述符的到 大epin->xfer_buff 发送给fifo到pc
+
+
+=====================USB 设备描述符初始化====收到pc的设备描述符请求===============
+
+
+flow1： 收到pc的设备描述符请求，保存到 hpcd_USB_OTG_FS->Setup  
+
+      OTG_FS_IRQHandler  -- HAL_PCD_IRQHandler -- (从机模式--GINTSTS收到数据包中断--GRXSTSP收到描述符请求 ) -- USB_ReadPacket   
+
+数据流：  usb中断 -- USBx_DFIFO -- hpcd_USB_OTG_FS->Setup  
+
+ -----------------------------------------------------------------------------------------------------
+
+
+//usb OTG 中断入口
+ OTG_FS_IRQHandler( ) 
+          HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS);
+
+--------------
+
+数据流： USBx_DFIFO -- hpcd_USB_OTG_FS->Setup
+HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)   参数： hpcd_USB_OTG_FS
+
+        USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;       //=USB_OTG_FS
+        uint32_t USBx_BASE =  USBx;                                               //=USB_OTG_FS
+
+        uint32_t    i, ep_intr, epint, epnum;
+        uint32_t    fifoemptymsk, temp;
+        USB_OTG_EPTypeDef    *ep;
+
+         //if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)     //这里只考虑从机         
+            if ( GINTSTS.0 == 0)      
+
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_RXFLVL))   //  有接收到pc数据包的中断
+                
+                        USB_MASK_INTERRUPT(USB_OTG_FS, USB_OTG_GINTSTS_RXFLVL);    //GINTMSK.4=0 ,暂时关fifo中断
+
+                        temp = USBx->GRXSTSP;
+
+                        //ep = &hpcd->OUT_ep[temp & USB_OTG_GRXSTSP_EPNUM];
+                             ep = &hpcd->OUT_ep[ GRXSTSP.EPNUM ];   //GRXSTSP.3-0
+
+                        if (((temp & USB_OTG_GRXSTSP_PKTSTS) >> 17) ==  STS_DATA_UPDT)   //GRXSTSP.20-17=0010 , 收到音乐数据                         
+                                (忽略......)                                
+                        
+                        else if (((temp & USB_OTG_GRXSTSP_PKTSTS) >> 17) == STS_SETUP_UPDT)    //  //GRXSTSP.20-17=0110 , 收到描述符请求指令 
+                        
+                                //USB_ReadPacket(USBx,  hpcd->Setup, 8 );                                              //这里
+                                      for (i = 0; i < 8; i++) 
+                                              *hpcd_USB_OTG_FS->Setup  =  USBx_DFIFO(0);         //数据流：USBx_DFIFO -- hpcd_USB_OTG_FS->Setup
+                                               hpcd_USB_OTG_FS->Setup++;
+
+                                ep->xfer_count += (temp & USB_OTG_GRXSTSP_BCNT) >> 4;
+                        
+ 
+                        USB_UNMASK_INTERRUPT(USB_OTG_FS, USB_OTG_GINTSTS_RXFLVL);         //GINTMSK.4=1, 重新开fifo中断
+                
+
+                //if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_OEPINT))
+                     if ( GINTSTS.19 == 1)  //OEPINT    // 如果有usb的数据進来（ pc发到mcu）                
+                         ......(忽略)     //先忽略，这里是回复描述符到pc  （详见下面）
+
+
+----------------
+
+#define USB_OTG_FIFO_BASE                   0x1000UL
+#define USB_OTG_FIFO_SIZE                     0x1000UL
+
+USBx_BASE=USB_OTG_FS
+#define USBx_DFIFO(i)          *(USBx_BASE + USB_OTG_FIFO_BASE + ((i) * USB_OTG_FIFO_SIZE))
+#define __UNALIGNED_UINT32_WRITE(addr, val)    ((*((__packed uint32_t *)(addr))) = (val))
+
+数据流：  USBx_DFIFO -- hpcd_USB_OTG_FS->Setup
+USB_ReadPacket(  *USBx,   *dest,    len)                               //参数： USB_OTG_FS， hpcd_USB_OTG_FS->Setup ，8
+ 
+        uint32_t USBx_BASE = USBx;         //=USB_OTG_FS
+
+        uint32_t  *pDest = dest;            // =  hpcd_USB_OTG_FS->Setup
+        uint32_t   i;
+        //uint32_t count32b = ( len + 3) / 4;   
+               uint32_t count32b = ( 8 + 3) / 4;               //=2
+
+        for (i = 0; i < count32b; i++)
+       
+                //__UNALIGNED_UINT32_WRITE(pDest, USBx_DFIFO(0));
+                //    pDest  =  USBx_DFIFO(0);   
+                //      ep->xfer_buff  =  USBx_DFIFO(0);   
+                           *hpcd_USB_OTG_FS->Setup  =  USBx_DFIFO(0);                               
+
+                hpcd_USB_OTG_FS->Setup+=4;  //每次从FIFO中读取4个字节
+
+
+
+----------------小参考-------hpcd_USB_OTG_FS->Setup 实际应用的地方--------------------
+
+31.0 CTL 80 06 00 01 00 00 12 00     //pc发送请求，取得设备描述符
+
+数据流： hpcd_USB_OTG_FS->Setup -- hUsbDeviceFS->request 
+ USBD_LL_SetupStage(  *pdev,  *psetup)                                                //参数：hUsbDeviceFS  ,  hpcd_USB_OTG_FS->Setup[ ]
+ 
+        //USBD_ParseSetupRequest(&pdev->request, psetup);
+              hUsbDeviceFS->request  = hpcd_USB_OTG_FS->Setup;
+
+        pdev->ep0_state = USBD_EP0_SETUP;
+        pdev->ep0_data_len = pdev->request.wLength;
+
+
+        switch (pdev->request.bmRequest & 0x1FU)  //0x80
+ 
+                case USB_REQ_RECIPIENT_DEVICE:     //0x00     //yes    （ 第一组数据：80 06 00 01 00 00 12 00 ）
+
+                        //ret = USBD_StdDevReq(pdev, &pdev->request);      //这里
+                        //         USBD_GetDescriptor(hUsbDeviceFS , hUsbDeviceFS->request);
+                        //            USBD_CtlSendData(hUsbDeviceFS, USBD_FS_DeviceDesc, 0x12);   
+                        //              HAL_PCD_EP_Transmit(hpcd_USB_OTG_FS, 0 , USBD_AUDIO_CfgDesc, 0x12);       
+                                              ep->xfer_buff =USBD_AUDIO_CfgDesc;                                                      //把USBD_FS_DeviceDesc存入到  大epin->xfer_buff
+                                              USB_EP0StartXfer( USB_OTG_FS, hpcd_USB_OTG_FS->IN_ep[0], 0);        //DIEPTSIZ设置 fifo数据包大小为1，总发送字节数量为0x12，
+                                                                                                                                                                            DIEPCTL开启发送，DIEPEMPMSK使能fifo空中断
+
+                case USB_REQ_RECIPIENT_INTERFACE:      //0x01     //yes    （ 第二组数据: a1 81 00 01 00 16 01 00 ）
+ 
+                          //ret = USBD_StdItfReq(pdev, &pdev->request);
+                          //    pdev->pClass->Setup(hUsbDeviceFS, hUsbDeviceFS->request);  
+                          //       USBD_AUDIO_Setup(hUsbDeviceFS, hUsbDeviceFS->request);  
+                          //           AUDIO_REQ(hUsbDeviceFS, hUsbDeviceFS->request);  
+                                           USBD_CtlSendData (pdev, haudio->last_control.data,1);        // 待理解
+
+
+
+=====================USB 设备描述符初始化====把设备描述符存入到大epin->xfer_buff===============
+
+flow1： 收到pc的设备描述符请求，保存到 hpcd_USB_OTG_FS->Setup  
+     OTG_FS_IRQHandler  -- HAL_PCD_IRQHandler -- (从机模式--OEPINT有usb数据進来--GRXSTSP收到描述符请求 ) -- USB_ReadPacket  
+
+     数据流：  usb中断 -- USBx_DFIFO -- hpcd_USB_OTG_FS->Setup  
+
+flow2：把设备描述符USBD_FS_DeviceDesc存入到N_ep[0]->xfer_buff
+
+      HAL_PCD_IRQHandler -- (从机模式 -- 有输出端点OEPINT的中断 -- DAINT有输出端口中断 -- DAINT是端口0的输出中断 -- 细分子中断STUP端点0的SETUP阶段已完成)
+
+      -- PCD_EP_OutSetupPacket_int -- HAL_PCD_SetupStageCallback -- USBD_LL_SetupStage - USBD_ParseSetupRequest  --  (req.1-0=00设备)  
+      --USBD_StdDevReq --  (req.6-5=00标准 -- req2.3-0=6 ) --USBD_GetDescriptor -- pdev->pDesc->GetDeviceDescriptor  -- USBD_FS_DeviceDescriptor 
+      -- (req3.15-8= 1设备符 -- pbuf = USBD_FS_DeviceDesc) -- (req5.len>0) -- USBD_CtlSendData --  USBD_LL_Transmit -- HAL_PCD_EP_Transmit  --  USB_EP0StartXfer
+
+     数据流： hpcd_USB_OTG_FS->Setup -- hUsbDeviceFS->request     (输入数据的处理)
+     数据流： USBD_FS_DeviceDesc -- 大epin->xfer_buff (输出数据的处理)
+
+
+-----------------------------------------------------------------------------------------------------
+
+
+//USB中断入口函数
+ OTG_FS_IRQHandler( )
+
+        HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS);      
+
+-------------
+
+ 
+参数：hpcd_USB_OTG_FS
+ HAL_PCD_IRQHandler(  *hpcd)     //hpcd->Instance = USB_OTG_FS
+
+        //if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)     //如果是usb从机模式
+             if ( GINTSTS.0 == 0)    
+
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_RXFLVL))   // 有接收到pc数据包的中断  （RXFLVL在OEPINT前面处理）               
+                         ......(忽略)
+
+                //if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_OEPINT))
+                if ( GINTSTS.19 == 1)   //OEPINT    // 有输出端点的中断（ pc发到mcu）
+                
+                        epnum = 0U;
+
+                        //ep_intr = USB_ReadDevAllOutEpInterrupt(hpcd->Instance);    //读取中断的输出端口  
+                             ep_intr = DAINT.31-16  >> 16;  
+
+                        while (ep_intr != 0U)  //如果有输出端口中断
+                      
+                               if ((ep_intr & 0x1) != 0U)    //如果是端口0-3的输出中断  （本工程实际只有端点0）
+                              
+                                      //epint = USB_ReadDevOutEPInterrupt(hpcd->Instance,  epnum);    //usb端口0输出的细分子中断
+                                             epint = DOEPINT0;
+
+                                     // if ((epint & USB_OTG_DOEPINT_XFRC) == USB_OTG_DOEPINT_XFRC)  //传输完成中断  //XFRC比下面的STUP先发生或执行
+                                            if (DOEPINT0.0==1)  
+         
+                                              CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_XFRC);    //清零DOEPINT0.0 
+                                              PCD_EP_OutXfrComplete_int(hpcd, epnum);                           //待理解
+
+                                      //if ((epint & USB_OTG_DOEPINT_STUP) == USB_OTG_DOEPINT_STUP)   //判断控制端点SETUP阶段已完成（或当前阶段）//02
+                                           if (DOEPINT0.3==1)
+                                  
+                                                CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_STUP);            //DOEPINT0.3=0，清中断标志
+                                                 PCD_EP_OutSetupPacket_int(hpcd, epnum);                                  //这里
+ 
+                       ......  (忽略)
+
+                                epnum++;
+                                ep_intr >>= 1;
+ 
+ 
+-----------------
+
+//在EPOUT的中断進来时，建立setup包
+参数：hpcd_USB_OTG_FS ， BB
+ PCD_EP_OutSetupPacket_int(  *hpcd,  epnum) 
+
+        USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;   //USB_OTG_FS
+        uint32_t USBx_BASE = USBx;
+        uint32_t gSNPSiD = *(&USBx->CID + 0x1U);     //4f54281a
+
+        uint32_t DoepintReg = USBx_OUTEP(epnum)->DOEPINT;
+
+        if (( gSNPSiD > USB_OTG_CORE_ID_300A ) &&  ((DoepintReg & USB_OTG_DOEPINT_STPKTRX) == USB_OTG_DOEPINT_STPKTRX))     //待理解  //no ，  忽略跳过  
+                （忽略......);      
+ 
+        //HAL_PCD_SetupStageCallback(hpcd_USB_OTG_FS);    //这里
+        //    USBD_LL_SetupStage( hpcd_USB_OTG_FS->pData,  hpcd_USB_OTG_FS->Setup );
+                    USBD_LL_SetupStage( hUsbDeviceFS  ,  hpcd_USB_OTG_FS->Setup );
+ 
+  
+---------
+
+
+数据流： hpcd_USB_OTG_FS->Setup -- hUsbDeviceFS->request 
+//数据流2：USBD_FS_DeviceDesc  -- （  大epin->xfer_buff ）
+USBD_LL_SetupStage(  *pdev,  *psetup)                                                  //参数：hUsbDeviceFS  ,  hpcd_USB_OTG_FS->Setup[ ]
+ 
+        //USBD_ParseSetupRequest(&pdev->request, psetup);
+              hUsbDeviceFS->request  = hpcd_USB_OTG_FS->Setup;
+
+        pdev->ep0_state = USBD_EP0_SETUP;
+        pdev->ep0_data_len = pdev->request.wLength;
+
+        switch (pdev->request.bmRequest & 0x1FU)  //0x80
+ 
+                case USB_REQ_RECIPIENT_DEVICE:     //0x00     //yes
+
+                        //ret = USBD_StdDevReq(pdev, &pdev->request);                                  //这里
+                            ret = USBD_StdDevReq(hUsbDeviceFS, hUsbDeviceFS->request);     
+
+  
+----------- 
+
+//数据流：USBD_FS_DeviceDesc  -- （  大epin->xfer_buff ）
+USBD_StdDevReq( *pdev,   *req)       //参数：hUsbDeviceFS  ,  hUsbDeviceFS->request
+  
+    switch (req->bmRequest & USB_REQ_TYPE_MASK)    //0x80, 0x60
+                     ......(忽略) 
+
+        case USB_REQ_TYPE_STANDARD:    //00    //yes
+
+            switch (req->bRequest)
+    
+                case USB_REQ_GET_DESCRIPTOR:   //06  //yes
+
+                    //USBD_GetDescriptor(pdev, req);       //这里     //数据流：USBD_FS_DeviceDesc  -- （  大epin->xfer_buff ）
+                         USBD_GetDescriptor(hUsbDeviceFS , hUsbDeviceFS->request);      
+
+                     ......(忽略) 
+
+
+--------------
+
+//80 06 00 01 00 00 12 00
+//数据流：USBD_FS_DeviceDesc  -- pbuf -- （  大epin->xfer_buff ）
+USBD_GetDescriptor( *pdev,   *req)         //参数：hUsbDeviceFS  ,  hUsbDeviceFS->request
+ 
+        uint16_t len = 0U;
+        uint8_t *pbuf = NULL;
+        uint8_t err = 0U;
+
+        switch (req->wValue >> 8)     //wValue=0x0100
+ 
+                case USB_DESC_TYPE_DEVICE:   //01  //yes
+                        //pbuf = pdev->pDesc->GetDeviceDescriptor(pdev->dev_speed, &len);   //这里
+                        //   pbuf = USBD_FS_DeviceDescriptor(hUsbDeviceFS->dev_speed, &len);   
+                                  pbuf = USBD_FS_DeviceDesc;     
+                                  len = sizeof(USBD_FS_DeviceDesc);   //=0x12
+
+                case USB_DESC_TYPE_CONFIGURATION:
+                        ......(忽略)
+
+
+        if (req->wLength != 0)    //wLength=0x12
+                if (len != 0)                 
+                        len = MIN(len, req->wLength);  //=0x12
+
+                       //USBD_CtlSendData(pdev, pbuf, len); 
+                               USBD_CtlSendData(hUsbDeviceFS, USBD_FS_DeviceDesc, 0x12);      //把USBD_FS_DeviceDesc存入到  大epin->xfer_buff
+
+        else        
+                USBD_CtlSendStatus(pdev);
+ 
+
+-----------
+
+
+//把发送数至pc据存入到 大epin->xfer_buff
+数据流： USBD_AUDIO_CfgDesc -- （  大epin->xfer_buff ）
+USBD_CtlSendData( USBD_HandleTypeDef *pdev,  *pbuf,    len )         //参数： hUsbDeviceFS,  USBD_AUDIO_CfgDesc, 0x12
+ 
+        pdev->ep0_state = USBD_EP0_DATA_IN;
+        pdev->ep_in[0].total_length = len; 
+ 
+        pdev->ep_in[0].rem_length = len;   
+ 
+        //USBD_LL_Transmit(pdev, 0x00, pbuf, len);
+        //  HAL_PCD_EP_Transmit(hUsbDeviceFS->pData, ep_addr, pbuf, len);
+                HAL_PCD_EP_Transmit(hpcd_USB_OTG_FS, 0 , USBD_AUDIO_CfgDesc, 0x12);      //把USBD_FS_DeviceDesc存入到  大epin->xfer_buff
+
+
+------------
+
+
+数据流： USBD_AUDIO_CfgDesc --  大epin->xfer_buff
+HAL_PCD_EP_Transmit( *hpcd,   ep_addr,   *pBuf,  len)      //参数： hpcd_USB_OTG_FS, 0 , USBD_AUDIO_CfgDesc, 0x12
+ 
+        PCD_EPTypeDef *ep;
+
+       //ep = &hpcd->IN_ep[ep_addr & EP_ADDR_MSK];
+           ep = &hpcd_USB_OTG_FS->IN_ep[0];
+ 
+        ep->xfer_buff = pBuf;                                // 数据流： USBD_AUDIO_CfgDesc --  大epin->xfer_buff
+        ep->xfer_len = len;                                     //=0x12
+        ep->xfer_count = 0;
+        ep->is_in = 1;                                                //1， 输入端点
+        ep->num = ep_addr & EP_ADDR_MSK;     //=0
+ 
+        if ((ep_addr & 0x0f) == 0)    //端点0
+ 
+                 //USB_EP0StartXfer(hpcd->Instance, ep, hpcd->Init.dma_enable);
+                    USB_EP0StartXfer( USB_OTG_FS, hpcd_USB_OTG_FS->IN_ep[0], 0);        //DIEPTSIZ设置 fifo数据包大小为1，总发送字节数量为0x12，
+                                                                                                                                                  DIEPCTL开启发送，DIEPEMPMSK使能fifo空中断
+
+        else  //play yes    //其他端点  （pc播放音乐端点）
+ 
+                USB_EPStartXfer(hpcd->Instance, ep, hpcd->Init.dma_enable);
+
+ 
+---
+
+//DIEPTSIZ设置 fifo参数：数据包大小为1，总发送字节数量为0x12，DIEPCTL开启发送，DIEPEMPMSK使能fifo空中断
+USB_EP0StartXfer(  *USBx,  *ep, dma)        //参数： USB_OTG_FS, hpcd_USB_OTG_FS->IN_ep[0], 0
+ 
+        USBx_BASE =  USBx;
+        epnum = ep->num;
+
+        if (ep->is_in == 1 )        //yes
+        
+                 if (ep->xfer_len == 0 )  //0x12  //no                 
+                        ......忽略
+                 
+                else    //yes
+                 
+                        USBx_INEP(epnum)->DIEPTSIZ &= ~(USB_OTG_DIEPTSIZ_XFRSIZ);     //清零DIEPTSIZ.6-0 
+                        USBx_INEP(epnum)->DIEPTSIZ &= ~(USB_OTG_DIEPTSIZ_PKTCNT);    //清零DIEPTSIZ.20-19 
+
+                        if (ep->xfer_len > ep->maxpacket)            //no       
+                                 ......忽略
+                         
+                        USBx_INEP(epnum)->DIEPTSIZ |= (USB_OTG_DIEPTSIZ_PKTCNT & (1 << 19));          //DIEPTSIZ.20-19=1,  fifo数据包大小
+                        USBx_INEP(epnum)->DIEPTSIZ |= (USB_OTG_DIEPTSIZ_XFRSIZ & ep->xfer_len);       //DIEPTSIZ.6-0=0x12，总发送字节数量
+                
+
+                if  ( dma  ==  1  )                 
+                      （......忽略）
+                else
+                
+                        USBx_INEP(epnum)->DIEPCTL |= (USB_OTG_DIEPCTL_CNAK | USB_OTG_DIEPCTL_EPENA);   //DIEPCTL0.31,26=1,1, 开启发送, 并清NAK
+
+                        if (ep->xfer_len > 0 )       //yes                         
+                                USBx_DEVICE->DIEPEMPMSK |= 1 << (ep->num & 0x0F);     //DIEPEMPMSK.0=1, 使能fifo空中断 （即发送完成）
+                        
+
+ 
+=====================USB 设备描述符初始化====把设备描述符的大epin->xfer_buff 发送给fifo到pc===============
+
+     flow1： usb从pc接收设备描述符：
+     OTG_FS_IRQHandler  -- HAL_PCD_IRQHandler -- (从机模式--OEPINT有usb数据進来--GRXSTSP收到描述符请求 ) -- USB_ReadPacket  
+
+     数据流：  usb中断 -- USBx_DFIFO -- hpcd_USB_OTG_FS->Setup  
+
+     flow2： 收到pc的请求后，把设备描述符存入  大epin->xfer_buff 
+    
+      HAL_PCD_IRQHandler -- (从机模式 -- 有输出端点的中断-- DAINT有输出端口中断 -- DAINT是端口0的输出中断 -- DOEPINT0端点SETUP阶段已完成)
+
+      -- PCD_EP_OutSetupPacket_int -- HAL_PCD_SetupStageCallback -- USBD_LL_SetupStage - USBD_ParseSetupRequest  --  (req.1-0=00设备)  
+      --USBD_StdDevReq --  (req.6-5=00标准 -- req2.3-0=6 ) --USBD_GetDescriptor -- pdev->pDesc->GetDeviceDescriptor  -- USBD_FS_DeviceDescriptor 
+      -- (req3.15-8= 0设备符 -- pbuf = USBD_FS_DeviceDesc) -- (req5.len>0) -- USBD_CtlSendData --  USBD_LL_Transmit -- HAL_PCD_EP_Transmit  -- USB_EP0StartXfer
+
+     数据流： hpcd_USB_OTG_FS->Setup -- hUsbDeviceFS->request     (输入数据的处理)
+     数据流： USBD_FS_DeviceDesc -- 大epin->xfer_buff                    (输出数据的处理)
+
+
+     flow3： 把设备描述符的大epin->xfer_buff 发送给fifo到pc
+
+      HAL_PCD_IRQHandler -- (从机模式 -- 有输入端点的中断  -- DAINT有输出端入中断  -- 有发送完成中断 )  --  PCD_WriteEmptyTxFifo  -- USB_WritePacket
+
+      数据流：大epin->xfer_buff  -- FIFO
+
+--------------------------------------------------------------------------------------------------
+
+
+参数：hpcd_USB_OTG_FS
+ HAL_PCD_IRQHandler(  *hpcd)     //hpcd->Instance = USB_OTG_FS
+
+        //if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)     //如果是usb从机模式
+             if ( GINTSTS.0 == 0)    
+
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_RXFLVL))   //GINTSTS.4 = 1，  已接收到数据包的中断  （RXFLVL在OEPINT前面处理）               
+                         ......(忽略)
+
+                //if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_OEPINT))   //GINTSTS.19 = 1，有输出端点的中断   
+                          ......(忽略)       
+
+                //if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_IEPINT))
+                if ( GINTSTS.18 == 1)      //IEPINT ，有输入端点的中断                
+     
+                      //ep_intr = USB_ReadDevAllInEpInterrupt(hpcd->Instance);
+                          ep_intr = DAINT.15-0;  
+
+                       epnum = 0;
+
+                        while (ep_intr != 0)               //如果有输人端点细分中断
+                        
+                                if ((ep_intr & 0x1) != 0)   //如果是端点0或1-3的输人中断   （本工程实际只有端点0）
+                                
+                                        //epint = USB_ReadDevInEPInterrupt(hpcd->Instance,  epnum);          //usb端口0输入的细分子中断
+                                             epint = DIEPINT0;
+
+                                        //if ((epint & USB_OTG_DIEPINT_XFRC) == USB_OTG_DIEPINT_XFRC)    //传输完成中断  //yes  //XFRC在TXFE的后面发生或执行
+                                                if (DIEPINT0.0==1)  
+
+                                                fifoemptymsk =  (1 << (epnum & 0F));
+                                                USBx_DEVICE->DIEPEMPMSK &= ~fifoemptymsk;           //暂时屏蔽当前端点的中断
+
+                                                CLEAR_IN_EP_INTR(epnum, USB_OTG_DIEPINT_XFRC);       //DIEPINT0.0=0， 清中断标志 
+ 
+                                                //HAL_PCD_DataInStageCallback(hpcd,  epnum);              
+                                                       USBD_LL_DataInStage( hUsbDeviceFS, epnum, hpcd->IN_ep[epnum].xfer_buff);       //或用于分包接收                     
+                                      
+                                        ......忽略 
+
+                                        //if ((epint & USB_OTG_DIEPINT_TXFE) == USB_OTG_DIEPINT_TXFE)  // 有发送完成中断（fifo已为空）
+                                                if (DIEPINT0.7==1)  
+                                       
+                                                //PCD_WriteEmptyTxFifo(hpcd, epnum);                         //把设备配置符大epin->xfer_buff 发送到fifo到pc
+                                                   PCD_WriteEmptyTxFifo(hpcd_USB_OTG_FS， 0);     
+                                   
+                                
+                                epnum++;         //下一个端点
+                                ep_intr >>= 1;   //下一个端点
+
+
+-----------------
+
+//把设备配置符大epin->xfer_buff 发送到fifo到pc
+数据流： 大epin->xfer_buff  --  USBx_DFIFO
+PCD_WriteEmptyTxFifo( *hpcd,   epnum)     //参数：hpcd_USB_OTG_FS， 0
+ 
+        USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;    
+        uint32_t USBx_BASE = USBx;
+        USB_OTG_EPTypeDef *ep;
+        uint32_t len;
+        uint32_t len32b;
+        uint32_t fifoemptymsk;
+
+        ep = &hpcd->IN_ep[0]; 
+        len = ep->xfer_len - ep->xfer_count;  //=0x12 -00 =0x12
+        len32b = (len + 3) / 4;  //=(18+3)/4      //--nouse
+
+        while (   ( DTXFSTS.15-0) >= len32b)  &&    (ep->xfer_count < ep->xfer_len)  &&  (ep->xfer_len != 0)  )    //d123: 1e 12 00  //yes
+       
+                len = ep->xfer_len - ep->xfer_count;
+                len32b = (len + 3) / 4;         //--nouse
+
+                //USB_WritePacket(USBx, ep->xfer_buff,  epnum,  len, hpcd->Init.dma_enable);
+                       USB_WritePacket(USBx, hpcd->大epin->xfer_buff, 0,  0x12, 0);        //数据流： 大epin->xfer_buff  --  USBx_DFIFO
+
+                ep->xfer_buff        += len;
+                ep->xfer_count     += len;        
+
+        if (ep->xfer_len <= ep->xfer_count)  //或已全部发送
+       
+                fifoemptymsk =  (0x1 << (epnum & EP_ADDR_MSK));    //1<<0
+                USBx_DEVICE->DIEPEMPMSK &= ~fifoemptymsk;           //DIEPEMPMSK.0=0, 关输入端点0的中断
+       
+-----  
+
+//把设备配置符大epin->xfer_buff 发送到fifo到pc
+数据流： 大epin->xfer_buff  --  USBx_DFIFO
+ USB_WritePacket( *USBx,   *src,  enum,   len,   dma)  参数： USBx, 大epin->xfer_buff, 0,  0x12, 0
+
+       uint32_t USBx_BASE =  USBx;
+       uint32_t *pSrc = src;                      // 大epin->xfer_buff
+       uint32_t count32b, i;
+
+       count32b = ( len + 3 ) / 4 ;
+
+       for (i = 0 ;  i < count32b;  i++)
+
+            //USBx_DFIFO( enum) =  __UNALIGNED_UINT32_READ(pSrc);
+               USBx_DFIFO( enum) =  *pSrc;                                                             //把设备配置符发送到fifo到pc
+
+            pSrc++;
+ 
+
+
+===========================参考1=========keep========================
+
+
+HAL_PCD_IRQHandler中 IEPINT 传送完成处理
+
+功能：或用于分包接收
+参数：hUsbDeviceFS, epnum, hpcd->IN_ep[epnum].xfer_buff
+USBD_LL_DataInStage( *pdev,   epnum,   *pdata)
+ 
+        USBD_EndpointTypeDef *pep;
+        USBD_StatusTypeDef ret;
+
+        if (epnum == 0)
+         
+                pep = &pdev->ep_in[0];
+
+                if (pdev->ep0_state == USBD_EP0_DATA_IN)  //yes
+                
+                        if (pep->rem_length > pep->maxpacket)  //yes //先处理前面的包
+                         
+                                pep->rem_length -= pep->maxpacket;
+
+                                //USBD_CtlContinueSendData(pdev, pdata, pep->rem_length);     //把USBD_FS_DeviceDesc存入到  大epin->xfer_buff？
+                               //     USBD_LL_Transmit(hUsbDeviceFS, 0 , hpcd->IN_ep[0].xfer_buff, pdev->ep_in[0]->rem_length);
+                                              HAL_PCD_EP_Transmit(hpcd_USB_OTG_FS, 0 ,hpcd->IN_ep[0].xfer_buff,   *->rem_length);      //或是调整大epin->xfer_buff的长度 
+
+                                //DIEPTSIZ设置 fifo数据包大小为1，总发送字节数量为0x12，DIEPCTL开启发送，DIEPEMPMSK使能fifo空中断
+                                //USBD_LL_PrepareReceive(pdev, 0U, NULL, 0U);
+                                         HAL_PCD_EP_Receive(hpcd_USB_OTG_FS, 0,NULL, 0);
+                        
+                        else     //yes  //处理最后一个包
+
+                                if ((pep->maxpacket == pep->rem_length) &&    (pep->total_length >= pep->maxpacket) &&   //YES
+                                                (pep->total_length < pdev->ep0_data_len))
+                                 
+                                        ......待理解                
+                               
+                                else   //yes
+                               
+                                        if (pdev->dev_state == USBD_STATE_CONFIGURED)          //YES                             
+                                             ......待理解
+                                        
+                                        //USBD_LL_StallEP(pdev, 0x80);
+                                                HAL_PCD_EP_SetStall(pdev->pData, , 0x80);        // 设置stall握手，设置fifo数据包大小1,   总发送字节数量24 ,包数量3    
+
+                                        USBD_CtlReceiveStatus(pdev);
+
+        else
+         
+                if (pdev->dev_state == USBD_STATE_CONFIGURED)                 //待理解
+                        if (pdev->pClass->DataIn != NULL)                        
+                                ret = (USBD_StatusTypeDef)pdev->pClass->DataIn(pdev, epnum);
+
+                        
+                              
+ ---------------
+
+// 设置stall握手，设置fifo数据包大小1,   总发送字节数量24 ,包数量3    
+参数：   hpcd_USB_OTG_FS , 0x80
+HAL_PCD_EP_SetStall( *hpcd,  ep_addr)
+ 
+        PCD_EPTypeDef *ep;
+ 
+        if ((0x80 & ep_addr) == 0x80)  //yes
+
+                ep = &hpcd->IN_ep[0];   
+                ep->is_in = 1;
+ 
+        ep->is_stall = 1;
+        ep->num = ep_addr & EP_ADDR_MSK;     //0
+ 
+
+       USB_EPSetStall(hpcd->Instance, ep);           // 设置stall握手
+
+        if ((ep_addr & EP_ADDR_MSK) == 0)   //yes  //端点0
+
+               USB_EP0_OutStart(hpcd->Instance,  0 ,  hpcd->Setup);  // fifo数据包大小1,   总发送字节数量24 ,包数量3    
+        
+ 
+-------------
+
+
+// 设置stall握手
+USB_EPSetStall(  *USBx,   *ep)
+ 
+    uint32_t USBx_BASE = USBx;
+    uint32_t epnum = ep->num;  //0
+
+    if (ep->is_in == 1)     //yes
+  
+          if (((USBx_INEP(epnum)->DIEPCTL & USB_OTG_DIEPCTL_EPENA) == 0U) && (epnum != 0U))
+     
+               ......忽略
+    
+          USBx_INEP(0)->DIEPCTL |= USB_OTG_DIEPCTL_STALL;    //DIEPCTL.21=1, stall握手 //待理解
+  
+    else     //no
+  
+           ......忽略
+  
+
+
+-----------------
+
+
+// fifo数据包大小1,   总发送字节数量24 ,包数量3       
+参数： USB_OTG_FS,   0,   hpcd_USB_OTG_FS->Setup
+USB_EP0_OutStart(   *USBx,   dma,   *psetup)
+ 
+        uint32_t  USBx_BASE  =  USBx;
+        uint32_t  gSNPSiD       =  USBx->CID +1;
+
+        if (gSNPSiD > USB_OTG_CORE_ID_300A)    //4f54281a大于4f54310a?   //no        
+                 ......忽略        
+
+        USBx_OUTEP(0U)->DOEPTSIZ = 0;
+        USBx_OUTEP(0U)->DOEPTSIZ |= (USB_OTG_DOEPTSIZ_PKTCNT & (1 << 19));         //DOEPTSIZ.20-19=1,  fifo数据包大小
+        USBx_OUTEP(0U)->DOEPTSIZ |= (3 * 8);                                                                          //DOEPTSIZ.6-0=24，总发送字节数量
+        USBx_OUTEP(0U)->DOEPTSIZ |=  USB_OTG_DOEPTSIZ_STUPCNT;    //3 << 29         //DOEPTSIZ.30-29=11，包数量
+
+               
+--------------------------------
+
+//DIEPTSIZ设置 fifo数据包大小为1，总发送字节数量为0x12，DIEPCTL开启发送，DIEPEMPMSK使能fifo空中断
+参数：hpcd_USB_OTG_FS, 0,NULL, 0
+HAL_PCD_EP_Receive( *hpcd,  ep_addr,   *pBuf,  len)
+ 
+        PCD_EPTypeDef *ep;
+
+        ep = &hpcd->OUT_ep[ep_addr & EP_ADDR_MSK];  //=hpcd->OUT_ep[0]
+
+        /*setup and start the Xfer */
+        ep->xfer_buff = pBuf;                              //NULL
+        ep->xfer_len = len;                                    //0
+        ep->xfer_count = 0U;
+        ep->is_in = 0U;
+        ep->num = ep_addr & EP_ADDR_MSK;    //0
+
+        if ((ep_addr & EP_ADDR_MSK) == 0)                      //yes
+                USB_EP0StartXfer(USB_OTG_FS, hpcd->OUT_ep[0], 0); 
+ 
+ --------
+
+ 
+//DIEPTSIZ设置 fifo数据包大小为1，总发送字节数量为0x12，DIEPCTL开启发送，DIEPEMPMSK使能fifo空中断
+USB_EP0StartXfer(  *USBx,  *ep, dma)        //参数： USB_OTG_FS, hpcd->OUT_ep[0], 0
+ 
+        USBx_BASE =  USBx;
+        epnum = ep->num;
+
+        if (ep->is_in == 1 )        //yes
+        
+                 if (ep->xfer_len == 0 )  //0x12  //no                 
+                        ......忽略
+                 
+                else    //yes
+                 
+                        USBx_INEP(epnum)->DIEPTSIZ &= ~(USB_OTG_DIEPTSIZ_XFRSIZ);     //清零DIEPTSIZ.6-0 
+                        USBx_INEP(epnum)->DIEPTSIZ &= ~(USB_OTG_DIEPTSIZ_PKTCNT);    //清零DIEPTSIZ.20-19 
+
+                        if (ep->xfer_len > ep->maxpacket)            //no       
+                                 ......忽略
+                         
+                        USBx_INEP(epnum)->DIEPTSIZ |= (USB_OTG_DIEPTSIZ_PKTCNT & (1 << 19));          //DIEPTSIZ.20-19=1,  fifo数据包大小
+                        USBx_INEP(epnum)->DIEPTSIZ |= (USB_OTG_DIEPTSIZ_XFRSIZ & ep->xfer_len);       //DIEPTSIZ.6-0=0x12，总发送字节数量
+                
+
+                if  ( dma  ==  1  )                 
+                      （......忽略）
+                else
+                
+                        USBx_INEP(epnum)->DIEPCTL |= (USB_OTG_DIEPCTL_CNAK | USB_OTG_DIEPCTL_EPENA);   //DIEPCTL0.31,26=1,1, 开启发送, 并清NAK
+
+                        if (ep->xfer_len > 0 )       //yes                         
+                                USBx_DEVICE->DIEPEMPMSK |= 1 << (ep->num & 0x0F);     //DIEPEMPMSK.0=1, 使能fifo空中断 （即发送完成）
+                        
+
+
+
+
+===========================参考2=========keep========================
+
+HAL_PCD_IRQHandler中 OEPINT 传说完成处理 
+
+//待理解
+参数：hpcd_USB_OTG_FS，0
+PCD_EP_OutXfrComplete_int(  *hpcd,   epnum)
+ 
+        USBx = hpcd->Instance;     //USB_OTG_FS
+        USBx_BASE = USBx;  
+
+        gSNPSiD = *(&USBx->CID + 0x1 );   //=CID + 1,  或内核ID ？
+
+        //DoepintReg = USBx_OUTEP(epnum)->DOEPINT;
+              DoepintReg = DOEPINT0;
+
+        if (hpcd->Init.dma_enable == 1U)
+                //no
+
+        else
+     
+                if ( gSNPSiD == USB_OTG_CORE_ID_310A )        //4f54281a!=4f54310a   //no              
+                       ......忽略                   
+              
+                else                 
+                        if ((epnum == 0U) && (hpcd->OUT_ep[epnum].xfer_len == 0))                        
+                                 USB_EP0_OutStart(hpcd->Instance, 0,  hpcd->Setup);     // fifo数据包大小1,   总发送字节数量24 ,包数量3       
+
+                         //HAL_PCD_DataOutStageCallback(hpcd,  epnum);
+                              USBD_LL_DataOutStage( hUsbDeviceFS, 0, hpcd->OUT_ep[0].xfer_buff);
+        
+
+-------
+ 
+ // fifo数据包大小1,   总发送字节数量24 ,包数量3       
+参数： USB_OTG_FS,   0,   hpcd_USB_OTG_FS->Setup
+USB_EP0_OutStart(   *USBx,   dma,   *psetup)
+ 
+        uint32_t  USBx_BASE  =  USBx;
+        uint32_t  gSNPSiD       =  USBx->CID +1;
+
+        if (gSNPSiD > USB_OTG_CORE_ID_300A)    //4f54281a大于4f54310a?   //no        
+                 ......忽略        
+
+        USBx_OUTEP(0U)->DOEPTSIZ = 0;
+        USBx_OUTEP(0U)->DOEPTSIZ |= (USB_OTG_DOEPTSIZ_PKTCNT & (1 << 19));         //DOEPTSIZ.20-19=1,  fifo数据包大小
+        USBx_OUTEP(0U)->DOEPTSIZ |= (3 * 8);                                                                          //DOEPTSIZ.6-0=24，总发送字节数量
+        USBx_OUTEP(0U)->DOEPTSIZ |=  USB_OTG_DOEPTSIZ_STUPCNT;    //3 << 29         //DOEPTSIZ.30-29=11，包数量
+
+
+-----
+
+参数： hUsbDeviceFS, 0, hpcd->OUT_ep[0].xfer_buff
+USBD_LL_DataOutStage( *pdev,  epnum,  *pdata)
+
+        USBD_EndpointTypeDef *pep;
+        USBD_StatusTypeDef ret;
+
+        if (epnum == 0)  //yes
+        
+                pep = &pdev->ep_out[0];
+
+                if (pdev->ep0_state == USBD_EP0_DATA_OUT)  //yes               
+                        ......待理解
+        
+        else  //play yes   待理解
+        
+            if (pdev->dev_state == USBD_STATE_CONFIGURED)
+ 
+                    if (pdev->pClass->DataOut != NULL)
+   
+                             ret = (USBD_StatusTypeDef)pdev->pClass->DataOut(pdev, epnum);
+                                                                            
+ 
+-----------------
+
+#define USBD_EP0_IDLE                                   0x00U
+#define USBD_EP0_SETUP                                  0x01U
+#define USBD_EP0_DATA_IN                                0x02U
+#define USBD_EP0_DATA_OUT                               0x03U
+#define USBD_EP0_STATUS_IN                              0x04U
+#define USBD_EP0_STATUS_OUT                             0x05U
+#define USBD_EP0_STALL                                  0x06U
+
+typedef struct
+{
+  uint32_t  status;
+  uint32_t  total_length;
+  uint32_t  rem_length;
+  uint32_t  maxpacket;
+  uint16_t  is_used;
+  uint16_t  bInterval;
+} USBD_EndpointTypeDef;
+
+
+
+
+ 
+
+
+

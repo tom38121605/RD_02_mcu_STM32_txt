@@ -1,0 +1,80 @@
+#include <stdio.h>//--add for sprintf
+#include "app.h"//--add for uart log
+#include <string.h>//--add for strcat
+
+printstr("start2\r\n");
+
+printbytes("start\r\n",7);
+
+char stemp[50];
+uint8_t *p1;
+p1=(uint8_t *)hpcd->Setup;
+sprintf(stemp,"set:%x\r\n",p1[0]);
+printstr(stemp);
+
+
+================================
+
+AUDIO_USB_Init
+AUDIO_PlaybackSessionInit
+ AUDIO_RecordingSessionInit
+
+
+USE_USB_AUDIO_RECORDING=1
+
+CLI_BUILD
+USE_DRV_DW3000
+USE_DRV_DW3720
+NB_DW_DRIVERS=2
+PROJECT_NAME=\"AudioTX\"
+DMA_SPI
+USB_ENABLE
+USE_USB_FS
+UWB_DATA_TRANS_DEBUG_TX=0
+USE_I2S_AUDIO_PLAYBACK=0
+USE_USB_AUDIO_PLAYBACK=1
+USE_AUDIO_TX=1
+USE_AUDIO=1
+STM32H7A3xx
+STM32H7A3RI
+USE_USB_AUDIO_RECORDING=0
+
+
+===========================
+
+GS385 STM32C011 OmmoCom：
+1. Test to read the MMC0's data.
+
+
+
+==============
+
+void EXTI0_1_IRQHandler(void)
+{
+   。。。
+}
+
+void EXTI4_15_IRQHandler(void)
+{
+  。。。
+}
+
+============================
+
+ommo_send_data_out
+  printf("abcde\r\n" );
+==========================================
+
+	  if(flg_exint==1)
+	  {  
+		  flg_exint=0;
+		  
+		  Send_Data_To_UART1(0x31); //test
+		  
+	  }  
+
+
+
+
+
+

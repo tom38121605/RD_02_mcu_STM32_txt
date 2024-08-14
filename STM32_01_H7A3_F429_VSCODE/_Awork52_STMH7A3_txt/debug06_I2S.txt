@@ -1,0 +1,307 @@
+
+
+=====================初始化I2S及DMA ======================
+
+flow： (初始化I2S及DMA)
+
+           BoardInit  --  MX_I2S1_Init  -- HAL_I2S_Init  --  HAL_I2S_MspInit  -- HAL_DMA_Init  --  __HAL_LINKDMA
+
+
+---------------------------------------
+
+ main( )
+ 
+       //BoardInit();
+              MX_I2S1_Init();
+
+-----------
+
+
+ MX_I2S1_Init( )
+
+        hi2s.Instance = SPI1;
+        hi2s.Init.Mode = I2S_MODE_MASTER_FULLDUPLEX;
+        hi2s.Init.Standard = I2S_STANDARD_PHILIPS;
+ 
+        hi2s.Init.DataFormat = I2S_DATAFORMAT_32B;
+ 
+        hi2s.Init.MCLKOutput = I2S_MCLKOUTPUT_DISABLE;
+        hi2s.Init.AudioFreq = I2S_AUDIOFREQ_HZ;
+        hi2s.Init.CPOL = I2S_CPOL_LOW;
+        hi2s.Init.FirstBit = I2S_FIRSTBIT_MSB;
+        hi2s.Init.WSInversion = I2S_WS_INVERSION_DISABLE;
+        hi2s.Init.Data24BitAlignment = I2S_DATA_24BIT_ALIGNMENT_RIGHT;
+        hi2s.Init.MasterKeepIOState = I2S_MASTER_KEEP_IO_STATE_DISABLE;
+
+        HAL_I2S_Init(&hi2s)；
+ 
+
+
+-------------------------------
+
+
+
+参数： hi2s
+ HAL_I2S_Init( *hi2s)
+ 
+         if (hi2s->State == HAL_I2S_STATE_RESET)
+  
+                hi2s->Lock = HAL_UNLOCKED;
+
+                /* Init the low level hardware : GPIO, CLOCK, CORTEX...etc */
+                HAL_I2S_MspInit(hi2s); 
+
+
+        hi2s->State = HAL_I2S_STATE_BUSY;
+
+ 
+        if ((hi2s->Instance->CR1 & SPI_CR1_SPE) == SPI_CR1_SPE)
+                __HAL_I2S_DISABLE(hi2s);   //CR1.SPE=0
+
+        CLEAR_REG(hi2s->Instance->I2SCFGR);
+
+
+        if (IS_I2S_MASTER(hi2s->Init.Mode))
+        {
+                /*------------------------- I2SDIV and ODD Calculation ---------------------*/
+                /* If the requested audio frequency is not the default, compute the prescaler */
+                if (hi2s->Init.AudioFreq != I2S_AUDIOFREQ_DEFAULT)
+                {
+                         if (hi2s->Init.DataFormat != I2S_DATAFORMAT_16B)                                
+                                packetlength = 2UL;  /* Channel length is 32 bits */ 
+                        else                                
+                                packetlength = 1UL;  /* Channel length is 16 bits */
+  
+
+                        /* Check if PCM standard is used */
+                        if ((hi2s->Init.Standard == I2S_STANDARD_PCM_SHORT) || (hi2s->Init.Standard == I2S_STANDARD_PCM_LONG)) 
+                                ispcm = 1UL; 
+                        else 
+                                ispcm = 0UL;
+ 
+
+                        /* Get the source clock value: based on System Clock value */ 
+                        if (hi2s->Instance == SPI6) 
+                                /* SPI6 source clock */
+                                i2sclk = HAL_RCCEx_GetPeriphCLKFreq(RCC_PERIPHCLK_SPI6); 
+                        else 
+                                /* SPI1,SPI2 and SPI3 share the same source clock */
+                                i2sclk = HAL_RCCEx_GetPeriphCLKFreq(RCC_PERIPHCLK_SPI123);
+
+
+                        /* Compute the Real divider depending on the MCLK output state, with a floating point */
+                        if (hi2s->Init.MCLKOutput == I2S_MCLKOUTPUT_ENABLE)
+                                tmp = (uint32_t)((((i2sclk / (256UL >> ispcm)) * 10UL) / hi2s->Init.AudioFreq) + 5UL);  /* MCLK output is enabled */ 
+                        else
+                                tmp = (uint32_t)((((i2sclk / ((32UL >> ispcm) * packetlength)) * 10UL) / hi2s->Init.AudioFreq) + 5UL);   /* MCLK output is disabled */
+ 
+
+                        /* Remove the flatting point */
+                        tmp = tmp / 10UL;
+
+                        /* Check the parity of the divider */
+                        i2sodd = (uint32_t)(tmp & (uint32_t)1UL);
+
+                        /* Compute the i2sdiv prescaler */
+                        i2sdiv = (uint32_t)((tmp - i2sodd) / 2UL);
+ 
+                else
+ 
+                        /* Set the default values */
+                        i2sdiv = 2UL;
+                        i2sodd = 0UL;
+ 
+
+                /* Test if the obtain values are forbidden or out of range */
+                if (((i2sodd == 1UL) && (i2sdiv == 1UL)) || (i2sdiv > 0xFFUL))
+ 
+                        /* Set the error code */
+                        SET_BIT(hi2s->ErrorCode, HAL_I2S_ERROR_PRESCALER);
+                        return        HAL_ERROR;
+ 
+
+                /* Force i2smod to 1 just to be sure that (2xi2sdiv + i2sodd) is always higher than 0 */
+                if (i2sdiv == 0UL)
+        
+        MODIFY_REG(hi2s->Instance->I2SCFGR, (SPI_I2SCFGR_I2SDIV                                 | SPI_I2SCFGR_ODD),
+                             ((i2sdiv << SPI_I2SCFGR_I2SDIV_Pos) | (i2sodd << SPI_I2SCFGR_ODD_Pos)));
+    }
+
+    /*-------------------------- I2Sx I2SCFGR Configuration --------------------*/
+    /* Configure I2SMOD, I2SCFG, I2SSTD, PCMSYNC, DATLEN ,CHLEN ,CKPOL, WSINV, DATAFMT, I2SDIV, ODD and MCKOE bits bits */
+    /* And configure the I2S with the I2S_InitStruct values */
+    MODIFY_REG(hi2s->Instance->I2SCFGR, (SPI_I2SCFGR_I2SMOD     | SPI_I2SCFGR_I2SCFG         | \
+                                                                             SPI_I2SCFGR_I2SSTD     | SPI_I2SCFGR_PCMSYNC        | \
+                                                                             SPI_I2SCFGR_DATLEN     | SPI_I2SCFGR_CHLEN            | \
+                                                                             SPI_I2SCFGR_CKPOL        | SPI_I2SCFGR_WSINV            | \
+                                                                             SPI_I2SCFGR_DATFMT     | SPI_I2SCFGR_MCKOE),
+                         (SPI_I2SCFGR_I2SMOD     | hi2s->Init.Mode                | \
+                            hi2s->Init.Standard    | hi2s->Init.DataFormat    | \
+                            hi2s->Init.CPOL            | hi2s->Init.WSInversion | \
+                            hi2s->Init.Data24BitAlignment | hi2s->Init.MCLKOutput));
+
+        /*Clear status register*/
+        WRITE_REG(hi2s->Instance->IFCR, 0x0FF8);
+
+        /*---------------------------- I2Sx CFG2 Configuration ----------------------*/
+
+        /* Unlock the AF configuration to configure CFG2 register*/
+        CLEAR_BIT(hi2s->Instance->CR1, SPI_CR1_IOLOCK);
+
+        MODIFY_REG(hi2s->Instance->CFG2, SPI_CFG2_LSBFRST, hi2s->Init.FirstBit);
+
+        /* Insure that AFCNTR is managed only by Master */
+        if (IS_I2S_MASTER(hi2s->Init.Mode))
+                /* Alternate function GPIOs control */
+                MODIFY_REG(hi2s->Instance->CFG2, SPI_CFG2_AFCNTR, (hi2s->Init.MasterKeepIOState));
+    
+
+        hi2s->ErrorCode = HAL_I2S_ERROR_NONE;
+        hi2s->State                 = HAL_I2S_STATE_READY;
+ 
+
+---------------
+
+HAL_I2S_MspInit( * hi2s)
+ 
+        GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+        if(hi2s->Instance==SPI1)
+ 
+                __HAL_RCC_SPI1_CLK_ENABLE();
+
+                __HAL_RCC_GPIOA_CLK_ENABLE();
+                __HAL_RCC_GPIOC_CLK_ENABLE();
+ 
+                GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7;
+                GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+                GPIO_InitStruct.Pull = GPIO_NOPULL;
+                GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+                GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+                HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+                GPIO_InitStruct.Pin = GPIO_PIN_4;
+                GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+                GPIO_InitStruct.Pull = GPIO_NOPULL;
+                GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+                GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+                HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+                /* I2S1 DMA Init */
+                /* SPI1_TX Init */
+                hdma_i2s_tx.Instance = DMA1_Stream5;
+                hdma_i2s_tx.Init.Request = DMA_REQUEST_SPI1_TX;
+                hdma_i2s_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
+                hdma_i2s_tx.Init.PeriphInc = DMA_PINC_DISABLE;
+                hdma_i2s_tx.Init.MemInc = DMA_MINC_ENABLE;
+                hdma_i2s_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+                hdma_i2s_tx.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
+                hdma_i2s_tx.Init.Mode = DMA_CIRCULAR;
+                hdma_i2s_tx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
+                hdma_i2s_tx.Init.FIFOMode = DMA_FIFOMODE_ENABLE;
+                hdma_i2s_tx.Init.FIFOThreshold = DMA_FIFO_THRESHOLD_FULL;
+                hdma_i2s_tx.Init.MemBurst = DMA_MBURST_SINGLE;
+                hdma_i2s_tx.Init.PeriphBurst = DMA_PBURST_SINGLE;
+
+                HAL_DMA_Init(&hdma_i2s_tx) ；
+
+                __HAL_LINKDMA(hi2s,hdmatx,hdma_i2s_tx);
+                               hi2s->hdmarx = &hdma_i2s_tx;  
+                               hdma_i2s_tx.Parent =  hi2s;       
+ 
+ 
+--------------------------
+
+参数：hdma_i2s_tx
+HAL_DMA_Init( *hdma)     //here for spi1, 即I2S1
+        
+        uint32_t registerValue;
+        uint32_t tickstart = HAL_GetTick();
+        DMA_Base_Registers         *regs_dma;
+        BDMA_Base_Registers        *regs_bdma; 
+
+        if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0U)     // DMA1 or DMA2 instance  （uart5, spi3, spi1  ）
+        
+                hdma->State = HAL_DMA_STATE_BUSY;
+                __HAL_UNLOCK(hdma);
+                __HAL_DMA_DISABLE(hdma);
+
+                while((( hdma->Instance)->CR & DMA_SxCR_EN) != 0U)      //看是否成功disable
+                                return HAL_DMA_ERROR_TIMEOUT;
+
+                //----- 读取和设DMA的CR寄存器 -----
+
+                registerValue = (hdma->Instance)->CR;   
+
+                //清0下面各位
+                registerValue &= ~( DMA_SxCR_MBURST |    //memory 传输增量  --待理解
+                                                     DMA_SxCR_PBURST |     //外设 传输增量  --待理解
+                                                     DMA_SxCR_PL  |             //优先级
+                                                     DMA_SxCR_MSIZE  |      //memory datasize
+                                                     DMA_SxCR_PSIZE  |       //外设 datasize
+                                                     DMA_SxCR_MINC  |       //memory 地址跟随模式   
+                                                     DMA_SxCR_PINC   |        //外设 地址跟随模式
+                                                     DMA_SxCR_CIRC   |         //圆形模式
+                                                     DMA_SxCR_DIR   |          //数据传输方向
+                                                     DMA_SxCR_CT     |         //当前内存是指向memory0还是memory1 （双缓冲模式下）
+                                                     DMA_SxCR_DBM);         //是否双缓冲
+
+                 registerValue |=   hdma->Init.Direction  |         //DMA_MEMORY_TO_PERIPH ， //  DMA_SxCR, 数据传输方向 MEMORY_TO_PERIPH
+                                               hdma->Init.PeriphInc  |        //DMA_PINC_DISABLE                   // DMA_SxCR, 外设为固定地址
+                                               hdma->Init.MemInc  |           //DMA_MINC_ENABLE                  // DMA_SxCR, memory 为地址跟随增加
+                                               hdma->Init.PeriphDataAlignment |    //DMA_PDATAALIGN_HALFWORD;     // DMA_SxCR,PSIZE=1，外设 16BIT
+                                               hdma->Init.MemDataAlignment |      //DMA_MDATAALIGN_HALFWORD      // DMA_SxCR,  MSIZE=1，  memory 16BIT
+                                               hdma->Init.Mode  |                              //DMA_CIRCULAR              // DMA_SxCR, 1, 圆形模式
+                                               hdma->Init.Priority;                              //DMA_PRIORITY_VERY_HIGH   // DMA_SxCR, 优先级为"VERY HIGH"
+
+                /* the Memory burst and peripheral burst are not used when the FIFO is disabled */
+                if(hdma->Init.FIFOMode == DMA_FIFOMODE_ENABLE)    //I2S是enable，需恢复下面的内容  (待完善)
+                       ......(忽略)
+
+                /* Work around for Errata 2.22: UART/USART- DMA transfer lock: DMA stream could be
+                       lock when transferring data to/from USART/UART */，待理解       
+ 
+                        if(IS_DMA_UART_USART_REQUEST(hdma->Init.Request) != 0U)          (这里是spi，固不满足uart的特定条件)             
+                                registerValue |= DMA_SxCR_TRBUFF;                     //DMA_SxCR,，使能bufferable传输，待理解                      
+ 
+                //写入DMA的CR寄存器
+                (hdma->Instance)->CR = registerValue;
+
+
+                 //-----读取和设置DMA的FCR寄存器-----
+
+                registerValue = ( hdma->Instance)->FCR;
+                registerValue &=~(DMA_SxFCR_DMDIS | DMA_SxFCR_FTH);  //清零DMDIS,  FTH，或 为直接模式全速FIFO
+
+                registerValue |= hdma->Init.FIFOMode;           //DMA_SxFCR，DMDIS=0, 不使能DMDIS
+
+                if(hdma->Init.FIFOMode == DMA_FIFOMODE_ENABLE)   //如果DMDIS=1,则下面  -- 待理解   //I2S是enable，需恢复下面的内容  (待完善)        
+                        ...... (忽略)                                          
+
+                //写入DMA的FCR寄存器
+                ( hdma->Instance)->FCR = registerValue;
+
+                //------设置LIFCR-----
+
+                regs_dma =  DMA_CalcBaseAndBitshift(hdma);   //或0--LISR
+
+                //清LIFCR中的streaming3的所有中断标志
+                regs_dma->IFCR = 0x3FUL << (hdma->StreamIndex & 0x1FU); //= 0x3f<<22  （或22指向streaming3）
+
+         
+        else if(IS_BDMA_CHANNEL_INSTANCE(hdma->Instance) != 0U) /* BDMA instance(s) */ 
+              ...... (忽略)
+   
+        else    
+              ...... (忽略)
+    
+
+        if(IS_DMA_DMAMUX_ALL_INSTANCE(hdma->Instance) != 0U) /* No DMAMUX available for BDMA1 */
+              ...... (忽略)
+   
+        hdma->ErrorCode = HAL_DMA_ERROR_NONE; 
+        hdma->State = HAL_DMA_STATE_READY;
+ 
+
+
+

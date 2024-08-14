@@ -1,0 +1,301 @@
+
+    // TX/RX call-back data
+    typedef struct
+    {
+        uint32_t status;     // initial value of register as ISR is entered
+        uint16_t status_hi;  // initial value of register as ISR is entered, if relevant for that event type
+        uint16_t datalength; // length of frame
+        uint8_t  rx_flags;   // RX frame flags, see above
+        uint8_t  dss_stat;   // Dual SPI status reg 11:38, 2 LSbits relevant : bit0 (DWT_CB_DSS_SPI1_AVAIL) and bit1 (DWT_CB_DSS_SPI2_AVAIL)
+        struct dwchip_s *dw;
+    } dwt_cb_data_t;
+
+
+struct uwb_medium_access_s
+{
+  uwb_medium_access_type    type;
+  uwb_access_context_t            context;
+};
+typedef struct uwb_medium_access_s uwb_medium_access_t;
+
+
+struct uwb_access_context_s
+{
+    uint32_t status;     // initial value of register as ISR is entered
+    uint16_t status_hi;  // initial value of register as ISR is entered, if relevant for that event type
+    uint16_t datalength; // length of frame
+    uint8_t * data;      // data buffer of frame
+    uint8_t  rx_flags;   // RX frame flags, see above
+    uint8_t  dss_stat;   // Dual SPI status reg 11:38, 2 LSbits relevant : bit0 (DWT_CB_DSS_SPI1_AVAIL) and bit1 (DWT_CB_DSS_SPI2_AVAIL)
+};
+typedef struct uwb_access_context_s uwb_access_context_t;
+
+----
+
+struct audio_data_circular_buffer_s
+{
+  uint8_t *data;   /* pointer to circular buffer data */
+  uint16_t rd_ptr; /* circular buffer reading offset */
+  uint16_t wr_ptr; /* circular buffer writing offset */
+  uint16_t size;   /* The size of buffer segment where samples may be read or written. It is equal or less than the real size of the buffer  */
+};
+
+typedef struct audio_data_circular_buffer_s audio_data_circular_buffer_t;
+
+
+struct audio_info_s
+{
+  audio_data_circular_buffer_t *data_buffer;
+  uwb_medium_access_t *access_buffer;
+  uint16_t next_access_index;
+  uint16_t last_access_index;
+  uint16_t ms_audio_sample_size;
+  uint16_t package_size;
+};
+
+typedef struct audio_info_s   audio_info_t;
+
+
+static audio_info_t *   psAudioInfo = NULL;
+static audio_info_t    audioInfo = 
+{
+    NULL,
+    0,
+    0,
+};
+
+
+-------------
+
+
+typedef struct __SPI_HandleTypeDef
+{
+  SPI_TypeDef                *Instance;                    /*!< SPI registers base address               */
+  SPI_InitTypeDef            Init;                         /*!< SPI communication parameters             */
+  uint8_t                    *pTxBuffPtr;                  /*!< Pointer to SPI Tx transfer Buffer        */
+  uint16_t                   TxXferSize;                   /*!< SPI Tx Transfer size                     */
+  __IO uint16_t              TxXferCount;                  /*!< SPI Tx Transfer Counter                  */
+  uint8_t                    *pRxBuffPtr;                  /*!< Pointer to SPI Rx transfer Buffer        */
+  uint16_t                   RxXferSize;                   /*!< SPI Rx Transfer size                     */
+  __IO uint16_t              RxXferCount;                  /*!< SPI Rx Transfer Counter                  */
+  uint32_t                   CRCSize;                      /*!< SPI CRC size used for the transfer       */
+  void (*RxISR)(struct __SPI_HandleTypeDef *hspi);         /*!< function pointer on Rx ISR               */
+  void (*TxISR)(struct __SPI_HandleTypeDef *hspi);         /*!< function pointer on Tx ISR               */
+  DMA_HandleTypeDef          *hdmatx;                      /*!< SPI Tx DMA Handle parameters             */
+  DMA_HandleTypeDef          *hdmarx;                      /*!< SPI Rx DMA Handle parameters             */
+  HAL_LockTypeDef            Lock;                         /*!< Locking object                           */
+  __IO HAL_SPI_StateTypeDef  State;                        /*!< SPI communication state                  */
+  __IO uint32_t              ErrorCode;                    /*!< SPI Error code                           */
+ 
+} SPI_HandleTypeDef;
+
+
+
+static struct dwchip_s *old_dw = NULL;
+
+struct dwchip_s
+{   
+    /*HAL*/
+    struct dwt_spi_s *SPI; // first
+    void(*wakeup_device_with_io)(void);
+
+    /*Driver*/
+    struct dwt_driver_s *dwt_driver;
+    struct dwt_callbacks_s callbacks;
+
+    /* driver configuration */
+    struct dwt_mcps_config_s *config;
+
+    /* MCPS */
+    struct mcps802154_llhw *llhw;
+    struct mcps802154_ops *mcps_ops;
+    struct dw3000_calibration_data *calib_data;
+    struct dwt_mcps_runtime_s *mcps_runtime;
+    struct dwt_mcps_rx_s *rx;
+
+    /* GPIO used to switch off WIFI while transmitting, for example */
+    int8_t coex_gpio_pin;
+    int8_t coex_gpio_active_state;
+
+    /** driver data*/
+    void *priv; // last
+};
+typedef struct dwchip_s dwchip_t;
+
+
+-----------------------------------
+
+struct spi_port_config_s
+{
+    uint32_t idx;
+    uint32_t cs;
+    uint32_t clk;
+    uint32_t mosi;
+    uint32_t miso;
+    uint32_t min_freq;
+    uint32_t max_freq;
+};
+typedef struct spi_port_config_s spi_port_config_t;
+
+struct uwbs_port_config_s
+{
+    const uint16_t irqPin;
+    const uint16_t irqN;
+    const uint16_t rstPin;
+    const uint16_t rstIrqN;
+    const uint16_t wakeUpPin;
+};
+
+struct spi_s
+{
+    void (*cs_low)(void *handler);
+    void (*cs_high)(void *handler);
+    void (*slow_rate)(void *handler);
+    void (*fast_rate)(void *handler);
+    int (*read)(void *handler, uint16_t headerLength, const uint8_t *headerBuffer, uint16_t readlength, uint8_t *readBuffer);
+    int (*write)(void *handler, uint16_t headerLength, const uint8_t *headerBuffer, uint16_t readlength, const uint8_t *readBuffer);
+    int (*read_write)(void *handler, uint8_t *readBuffer, uint16_t readlength, uint8_t *writebuffer, uint16_t writeLength);
+    int (*write_with_crc)(void *handler, uint16_t headerLength, const uint8_t *headerBuffer, uint16_t bodyLength, const uint8_t *bodyBuffer, uint8_t crc8);
+    void *handler;
+};
+typedef struct spi_s spi_t;
+
+struct dwchip_s
+{   
+    /*HAL*/
+    struct dwt_spi_s *SPI; // first
+    void(*wakeup_device_with_io)(void);
+
+    /*Driver*/
+    struct dwt_driver_s *dwt_driver;
+    struct dwt_callbacks_s callbacks;
+
+    /* driver configuration */
+    struct dwt_mcps_config_s *config;
+
+    /* MCPS */
+    struct mcps802154_llhw *llhw;
+    struct mcps802154_ops *mcps_ops;
+    struct dw3000_calibration_data *calib_data;
+    struct dwt_mcps_runtime_s *mcps_runtime;
+    struct dwt_mcps_rx_s *rx;
+
+    /* GPIO used to switch off WIFI while transmitting, for example */
+    int8_t coex_gpio_pin;
+    int8_t coex_gpio_active_state;
+
+    /** driver data*/
+    void *priv; // last
+};
+typedef struct dwchip_s dwchip_t;
+
+--------
+
+struct dwt_spi_s
+{ 
+    int (*readfromspi)(uint16_t headerLength, /*const*/ uint8_t *headerBuffer, uint16_t readlength, uint8_t *readBuffer); 
+    int (*writetospi)(uint16_t headerLength, const uint8_t *headerBuffer, uint16_t bodyLength, const uint8_t *bodyBuffer);
+ 
+    int (*writetospiwithcrc)(uint16_t headerLength, const uint8_t *headerBuffer, uint16_t bodyLength, const uint8_t *bodyBuffer, uint8_t crc8);
+
+     void (*setslowrate)(void);
+     void (*setfastrate)(void);
+};
+
+
+
+--------------------------
+
+
+const app_definition_t *queue_message;
+static QueueHandle_t     xTaskQueueEvent;
+
+#define queueQUEUE_TYPE_BASE	0
+#define queueQUEUE_TYPE_SET		0
+#define queueQUEUE_TYPE_MUTEX 	1
+
+
+------------------------
+
+
+typedef struct dwt_app_config_s dwt_app_config_t;
+static const dwt_app_config_t dwt_app_config_flash_default = 
+{
+    .dwt_config.chan            = APP_DEFAULT_CHANNEL, \
+    .dwt_config.txPreambLength  = APP_DEFAULT_TXPREAMBLENGTH, \
+    .dwt_config.rxPAC           = APP_DEFAULT_RXPAC, \
+    .dwt_config.txCode          = APP_DEFAULT_PCODE, \
+    .dwt_config.rxCode          = APP_DEFAULT_PCODE, \
+    .dwt_config.sfdType         = APP_DEFAULT_NSSFD, \
+    .dwt_config.dataRate        = APP_DEFAULT_DATARATE, \
+    .dwt_config.phrMode         = APP_DEFAULT_PHRMODE, \
+    .dwt_config.phrRate         = APP_DEFAULT_PHRRATE, \
+    .dwt_config.sfdTO           = APP_DEFAULT_SFDTO, \
+    .dwt_config.stsMode         = APP_DEFAULT_STS_MODE, \
+    .dwt_config.stsLength       = APP_DEFAULT_STS_LENGTH, \
+    .dwt_config.pdoaMode        = DEFAULT_PDOA_MODE, \
+    .sts_config.stsKey.key0     = 0x14EB220FUL,\
+    .sts_config.stsKey.key1     = 0xF86050A8UL,\
+    .sts_config.stsKey.key2     = 0xD1D336AAUL,\
+    .sts_config.stsKey.key3     = 0x14148674UL,\
+    .sts_config.stsIv.iv0       = 0x1F9A3DE4UL,\
+    .sts_config.stsIv.iv1       = 0xD37EC3CAUL,\
+    .sts_config.stsIv.iv2       = 0xC44FA8FBUL,\
+    .sts_config.stsIv.iv3       = 0x362EEB34UL,\
+    .sts_config.stsInteropMode  = 1L,\
+};
+static dwt_app_config_t dwt_app_config_ram __attribute__((section(".rconfig"))) = {0};
+  
+
+struct hal_uwb_s hal_uwb =
+{
+    .init  = init,          //init spi/comm to the chip
+    .probe = probe,         //probe driver chip
+
+    .irq_init = hal_uwb_init_irq,     //init the UWB IRQ of the MCU
+    .disableIRQ = hal_uwb_disable_irq,//disable UWB IRQ on MCU
+    .enableIRQ = hal_uwb_enable_irq,  //enable UWB IRQ on MCU
+    .reset = hal_uwb_reset_chip,      //HW reset of UWB
+
+    /* decoupled from MCU to chip IO */
+    .wakeup_start = hal_uwb_wakeup_start,
+    .wakeup_end   = hal_uwb_wakeup_end,
+    .wakeup_fast  = hal_uwb_wakeup_fast,
+    .wakeup_with_io = hal_uwb_wakeup_with_io,
+
+    .sleep_config     = hal_uwb_sleep_config,
+    .sleep_enter      = hal_uwb_sleep_enter,
+    .sleep_status_set = hal_uwb_sleep_status_set,
+    .sleep_status_get = hal_uwb_sleep_status_get,
+    .sleep_mode_set = hal_uwb_sleep_mode_set,
+    .sleep_mode_get = hal_uwb_sleep_mode_get,
+
+    .mcu_sleep_config = hal_uwb_mcu_sleep_config, /* MCU specific preconfig */
+    .mcu_suspend_clk  = hal_uwb_mcu_hfclk_off,  /* MCU XTAL -> MCU RC  */
+    .mcu_resume_clk   = hal_uwb_mcu_hfclk_on,   /* MCU RC -> MCU XTAL */
+
+    //review need of below
+    //.disable_wake_init = hal_uwb_disable_wake_init,
+    .stop_all_uwb = hal_uwb_port_stop_all_UWB,
+    .disable_irq_and_reset = hal_uwb_disable_irq_and_reset,
+    .deinit_callback = hal_deinit_callback,
+
+    .is_aoa = hal_uwb_is_AoA,
+
+    .is_sip = hal_uwb_return_false,
+    .sip_configure = NULL,
+
+    .uwbs = NULL
+};
+
+struct dw_s
+{
+    uint32_t devid;
+    const struct spi_port_config_s *spi_io_cfg;
+    const struct uwbs_port_config_s *ext_io_cfg;
+    const void *void_cfg;
+    struct spi_s *spi;   /* spi instance to this chip */
+    struct dwchip_s *dw; /* driver instance to the chip */
+};
+
+

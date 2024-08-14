@@ -1,0 +1,530 @@
+
+
+数据流： 无线传来数据 -- 保存到dw3000的寄存器中 -- 发中断给mcu -- mcu通过spi读取该寄存器中的数据(EXTI3_IRQHandler)
+
+
+  。xQueueCreate， 创建了一个队列xTaskQueueEvent，该队列可总共放3个消息
+  。EventManagerRegisterApp，在队列里添加了一个消息default_app，即DEFAULT_APP
+  。EventManagerWaitAppRegistration，从队列里取出一个消息，即DEFAULT_APP
+
+ 
+============================================5b相关初始化=========================================== 
+
+ //初始化uwbs，唤醒dw3000， 读取deviceid，配置txConfig 
+
+ flow： (5b相关初始化)
+             
+                main -- uwb_init   -- (hal_uwb.init) --  init -- hal_uwb_init_irq -- dwt_probe  --  dwt_probe -- dwt_configuretxrf
+ 
+
+-------------------------
+
+ //初始化uwbs，唤醒dw3000， 读取deviceid，配置txConfig（待理解）
+uwb_init( )
+ 
+        hal_uwb.init();     //初始化uwbs，唤醒dw3000
+
+        //hal_uwb.irq_init();   //优先级为5
+        //     hal_uwb_init_irq(void) 
+                       HAL_NVIC_SetPriority(hal_uwb.uwbs->ext_io_cfg->irqN, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY, 0);  //优先级为5
+
+        hal_uwb.disableIRQ();
+        hal_uwb.reset();
+
+       // 读取deviceid
+        hal_uwb.probe(); 
+
+         if (status == DWT_SUCCESS)
+       
+            //This function will update dw pointer used by interrupt  // 待理解
+            old_dw = dwt_update_dw(hal_uwb.uwbs->dw);  // 待理解，或API函数
+
+           // This function initialises the DW3xxx transceiver:
+            status = dwt_initialise(DWT_READ_OTP_PID | DWT_READ_OTP_LID);   //API函数
+
+            //txConfig = get_dwt_txconfig();
+                            txConfig = &rf_tuning_config_ram.txConfig;  //待理解
+
+               //vret = is_auto_restore_bssConfig();
+                       vret = auto_restore;   //=false
+                if( vret  )   //false, 不满足
+              
+                        //we are coming from a au default config, likely due to an initial powerup after FW upgrade
+                        //update what has to be updated, post chip detection
+                        rf_tuning_set_tx_power_pg_delay(hal_uwb.uwbs->devid);
+                        clear_auto_restore_bssConfig();
+                        save_bssConfig();
+              
+            dwt_set_alternative_pulse_shape(1);                     //API函数， sets the Alternative Pulse Shape according to ARIB   // 待理解
+            dwt_enable_disable_eq(DWT_EQ_ENABLED);      //API函数，使能eq    //待理解
+            dwt_configuretxrf(txConfig);                                  //API函数，configuration of the TX spectrum  //待理解
+     
+
+----
+ 
+//读取deviceid 
+//数据流： 读取deviceid --  hal_uwb.uwbs->devid
+probe( ) 
+ 
+    //dw3000_spi_fct
+    dw3000_spi_fct.readfromspi = read_from_spi;
+    dw3000_spi_fct.writetospi  = write_to_spi;
+    dw3000_spi_fct.writetospiwithcrc = write_to_spi_with_crc;
+    dw3000_spi_fct.setslowrate = spi_slow_rate;
+    dw3000_spi_fct.setfastrate = spi_fast_rate;
+
+    //dw3000_probe_interf
+    dw3000_probe_interf.dw = hal_uwb.uwbs->dw;                                                // &local_hal_dw
+    dw3000_probe_interf.spi = &dw3000_spi_fct;                                                      //  hal_uwb_init_spi(hal_uwb.uwbs->spi_io_cfg);
+    dw3000_probe_interf.wakeup_device_with_io = hal_uwb.wakeup_with_io;    //hal_uwb_wakeup_with_io
+
+    ret = dwt_probe( &dw3000_probe_interf);     // api函数
+
+    if (ret == 0)  //如果0，表示成功找到dw3000设备
+ 
+        uint8_t addr = 0x00;       // DW3XXX_DEVICE_ID;
+        uint8_t buf[4];
+
+        read_from_spi( 1, &addr, 4, buf);
+        hal_uwb.uwbs->devid = buf[3] << 24 | buf[2] << 16 | buf[1] << 8 | buf[0];
+ 
+ 
+---
+
+// API函数，选择正确的 DecaDriver from the list
+ dwt_probe(  *probe_interf);
+
+
+-----
+
+//初始化uwbs，唤醒dw3000
+ init( )
+ 
+    hal_uwb.uwbs = &uwbs;
+    hal_uwb.uwbs->dw = &local_hal_dw;
+
+    //hal_uwb.uwbs->spi = hal_uwb_init_spi(hal_uwb.uwbs->spi_io_cfg);   
+           hal_uwb.uwbs->spi = spi3; 
+
+           //spi3->slow_rate(spi_handler3);
+                    spi_slow_rate_(spi_handler3);
+
+
+    //hal_uwb.wakeup_with_io();
+    //    hal_uwb_wakeup_with_io();
+    //           hal_uwb.wakeup_fast();
+                        hal_uwb_wakeup_fast(),   //通过cs唤醒dw3000
+
+ 
+    //下面3行无实际作用，只为了编译通过  （忽略跳过）
+    uint8_t i = 0; 
+    driverList[i] = &dw3000_driver; i++; 
+    driverList[i] = &dw3720_driver; i++;
+ 
+ 
+----
+
+//通过cs唤醒dw3000
+ hal_uwb_wakeup_fast( )
+ 
+      //hal_uwb_wakeup_start();
+              hal_uwb.uwbs->spi->cs_low(hal_uwb.uwbs->spi->handler);
+              hal_uwb_sleep_status_set(UWB_IS_NOT_SLEEPING);
+
+      usleep(200);
+
+      //hal_uwb_wakeup_end();
+                  hal_uwb.uwbs->spi->cs_high(hal_uwb.uwbs->spi->handler);
+
+      //hal_uwb_sleep_status_set(UWB_IS_NOT_SLEEPING);
+                    hal_uwb.vsleep_status = UWB_IS_NOT_SLEEPING;
+ 
+
+
+ =================================================在 DefaultTask中开启5b接收====================================== 
+
+//UWB配置 ，开启I2s任务, 开启uwb接收
+
+ flow： (5b相关初始化)             
+                main -- uwb_init   -- (hal_uwb.init) --  init -- hal_uwb_init_irq -- dwt_probe  --  dwt_probe -- dwt_configuretxrf
+
+
+ flow：在 DefaultTask中开启5b接收）
+
+             DefaultTaskInit -- StartDefaultTask -- AppSet -- (DEFAULT_APP->helper )-- helpers_app_audio_rx->helper --  audio_rx_helper --  audio_rx_process_init 
+               -- audio_uwb_init -- dwt_setcallbacks  -- audio_buffer_init
+
+
+-----------------------
+
+main
+ 
+
+     //EventManagerInit() ；
+           xTaskQueueEvent = xQueueCreate(QUEUE_DEPTH, sizeof(app_definition_t *));  //QUEUE_DEPTH
+
+      //创建Default任务
+      //DefaultTaskInit(); 
+             create_default_task(StartDefaultTask, &defaultTaskHandle, DEFAULT_TASK_STACK_SIZE_BYTES);
+
+  
+
+-----------------------------
+
+//运行Default任务
+ StartDefaultTask(  *argument)    
+
+    const app_definition_t *queue_message;
+    const app_definition_t *default_app = DefaultTaskHookEvent();  //=default_app
+
+    if (default_app != NULL) 
+           //EventManagerRegisterApp(&default_app);
+           //        xQueueSend(xTaskQueueEvent, default_app, 0);
+                              xQueueGenericSend(xTaskQueueEvent, default_app, 0, 0);   //把default_app加入到消息队列
+   
+    while (1)    
+
+        Watchdog.refresh();
+
+       // EventManagerWaitAppRegistration( &queue_message, 200) ;
+       //       xQueueReceive(xTaskQueueEvent, &queue_message, 200); 
+                    xQueueGenericReceive(xTaskQueueEvent, &queue_message, 200, pdFALSE )  //从消息队列中取出default_app，并赋值给queue_message
+ 
+            if (AppGet()->terminate != NULL) 
+                    AppGet()->terminate();
+ 
+            AppSet(NULL);       //app =  &DEFAULT_APP;
+
+            osThreadYield();   // 让其他线程先运行，等其他线程结束后再运行下面 
+  
+            AppSet(queue_message);  //=app      //DEFAULT_APP ,即helpers_app_audio_rx
+            if (queue_message->helper != NULL) 
+                queue_message->helper(NULL);                                    //这里 helpers_app_audio_rx->helper  =   audio_rx_helper
+ 
+ 
+        osThreadYield();
+   
+ 
+ ------------------
+
+
+//UWB初始化，开启I2s任务, 开启uwb接收
+ audio_rx_helper(    *argument) 
+
+        hal_uwb.disable_irq_and_reset(1);
+
+        /* "RTOS-independent" part : initialization of audio receiving process */
+        tmp = audio_rx_process_init();     //UWB初始化，设置无线接收完成后的中断服务函数为audio_rx_done_cb
+
+        audio_i2s_setup_tasks();  // 开启I2s任务
+ 
+        //开启接收，并开启中断 
+        //audio_rx_process_start();
+        //         hal_uwb.enableIRQ();
+                    dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+
+-----
+
+//UWB初始化， 设置无线接收完成后的中断服务函数为audio_rx_done_cb
+ audio_rx_process_init() 
+ 
+        //dwt_config = get_dwt_config();
+               dwt_config = &dwt_app_config_ram.dwt_config;
+
+        hal_uwb.disableIRQ();  //关闭uwb的irq
+ 
+        if (dwt_initialise(0) != DWT_SUCCESS)       //初始化dw3000 
+                return (_ERR_INIT); 
+
+        if (hal_uwb.uwbs != NULL) 
+                //hal_uwb.uwbs->spi->fast_rate(hal_uwb.uwbs->spi->handler);
+                      spi_fast_rate_(spi_handler3);
+ 
+
+        //设置DW IC的UWB模式，设置音频接收模式的功率和天线延迟, 设置 SPI to fast rate 
+       rf_tuning = get_rf_tuning_config();
+        audio_configure_uwb_rxtx( dwt_config,
+                                                 DWT_FF_DATA_EN,     /* No frame filtering for AudioRx */
+                                                 rf_tuning->antTx_a,
+                                                 rf_tuning->antRx_a);
+ 
+        //设置无线接收完成后的中断服务函数为audio_rx_done_cb
+        audio_uwb_init(audio_rx_resp_cb, audio_rx_done_cb, audio_rx_timeout_cb, audio_rx_error_cb, rf_tuning->xtalTrim);            
+  
+        //初始化环形缓冲数据结构psAudioInfo
+        audio_buffer_init();
+
+
+----
+
+数据流：定义 psAudioInfo->data_buffer 
+ audio_buffer_init()
+ 
+        if (!psAudioInfo)
+                psAudioInfo = &audioInfo;
+ 
+        memset(psAudioInfo, 0, sizeof(audio_info_t));
+
+        psAudioInfo->ms_audio_sample_size = AUDIO_MS_SAMPLE_SIZE;
+        psAudioInfo->package_size                 = AUDIO_UWB_PACKAGE_SIZE;
+
+        psAudioInfo->data_buffer = &audio_data_circular_buffer;
+        memset(psAudioInfo->data_buffer, 0x0, sizeof(audio_data_circular_buffer_t));
+        psAudioInfo->data_buffer->size     = AUDIO_UWB_BUFFER_SIZE;
+        psAudioInfo->data_buffer->data     = audio_data_buffer;
+        psAudioInfo->data_buffer->wr_ptr = 0;
+        psAudioInfo->data_buffer->rd_ptr = 0;
+
+        if (!psAudioInfo->data_buffer->data)
+                return -1;
+         
+        memset(psAudioInfo->data_buffer->data, 0xA, psAudioInfo->data_buffer->size);
+
+        psAudioInfo->access_buffer = uwb_medium_access_buffer;
+        psAudioInfo->next_access_index = 0;
+        psAudioInfo->last_access_index = 0;
+ 
+------
+
+参数： spi_handler3
+ spi_fast_rate_( *handler)
+ 
+    *spi_handler = handler;  //spi_handler3
+
+    spi_handler->phspi->Init.BaudRatePrescaler = spi_handler->prescaler_fast;
+
+    __DSB();
+
+    HAL_SPI_Init(spi_handler->phspi);
+ 
+
+--------------------------- 
+
+功能：设置5b接收完成后的中断服务函数为audio_rx_done_cb
+//参数：audio_rx_resp_cb, audio_rx_done_cb, ......
+audio_uwb_init( bTxDone,   cbRxOk,  cbRxTo,  cbRxErr,  xtalTrim)
+ 
+    dwt_setleds(DWT_LEDS_ENABLE | DWT_LEDS_INIT_BLINK) ;        /**< DEBUG I/O 2&3 : configure the GPIOs which control the LEDs on HW */
+    dwt_setlnapamode(DWT_PA_ENABLE | DWT_LNA_ENABLE);        /**< DEBUG I/O 5&6 : configure TX/RX states to output on GPIOs */
+
+    //设置无线接收完成后的中断服务函数为 audio_rx_done_cb
+    dwt_setcallbacks(cbTxDone, cbRxOk, cbRxTo, cbRxErr, NULL, NULL, NULL);     //API 函数
+
+   //开启以下中断
+    dwt_setinterrupt( DWT_INT_TXFRS_BIT_MASK | DWT_INT_RXFCG_BIT_MASK
+                    | (DWT_INT_ARFE_BIT_MASK | DWT_INT_RXFSL_BIT_MASK | DWT_INT_RXSTO_BIT_MASK | DWT_INT_RXPHE_BIT_MASK
+                            | DWT_INT_RXFCE_BIT_MASK | DWT_INT_RXFTO_BIT_MASK /*| SYS_STATUS_RXPTO_BIT_MASK*/), 0, 2);
+ 
+
+-----------
+
+//设置DW IC的UWB模式，设置音频接收模式的功率和天线延迟, 设置 SPI to fast rate 
+audio_configure_uwb_rxtx( *pdwCfg, frameFilter,  txAntDelay,  rxAntDelay)
+ 
+    pdwCfg->chan           = 5;
+    pdwCfg->txPreambLength = DWT_PLEN_64;
+    pdwCfg->rxPAC          = DWT_PAC8;
+    pdwCfg->txCode         = 25;
+    pdwCfg->rxCode         = 25;
+    pdwCfg->sfdType        = DWT_SFD_IEEE_4Z;
+    pdwCfg->dataRate       = DWT_BR_6M8;
+    pdwCfg->phrMode        = DWT_PHRMODE_EXT;
+    pdwCfg->phrRate        = DWT_PHRRATE_STD;
+    pdwCfg->sfdTO          = (64 + 1 + 8 - 8);
+    pdwCfg->stsMode        = DWT_STS_MODE_1 | DWT_STS_MODE_SDC;
+    pdwCfg->stsLength      = DWT_STS_LEN_64;
+    pdwCfg->pdoaMode       = DWT_PDOA_M0;
+ 
+    if (dwt_configure(pdwCfg))
+        error_handler(1, _ERR_INIT); 
+ 
+    dwt_configuretxrf(&txconfig_options);
+ 
+
+    /* Set PAN ID and short address */
+    uint16_t pan_id = (PAN_ID_HI << 8) + PAN_ID_LO;
+    uint16_t short_addr = (SHORT_ADDR_HI << 8) + SHORT_ADDR_LO;
+    dwt_setpanid(pan_id);
+    dwt_setaddress16(short_addr);
+
+    /* Configure frame filtering. Only data frames are enabled in this example. Frame filtering must be enabled for Auto ACK to work. */
+    dwt_configureframefilter(DWT_FF_ENABLE_802_15_4, frameFilter);
+
+     dwt_setdblrxbuffmode(DBL_BUF_STATE_DIS, DBL_BUF_MODE_AUTO); /* Disable double buffer - auto RX re-enable mode */
+ 
+    dwt_setrxtimeout(RX_RESP_TO_UUS); /* Set RX timeout for audio receiver side */
+ 
+    dwt_enableautoack(0, 1);
+
+
+
+
+ =================================================5b接收数据====================================== 
+
+ flow： (5b相关初始化)             
+               main -- uwb_init   -- (hal_uwb.init) --  init -- hal_uwb_init_irq -- dwt_probe  --  dwt_probe -- dwt_configuretxrf
+
+ flow：在 DefaultTask中开启5b接收）
+             DefaultTaskInit -- StartDefaultTask -- AppSet -- (DEFAULT_APP->helper )-- helpers_app_audio_rx->helper --  audio_rx_helper --  audio_rx_process_init 
+             -- audio_uwb_init -- audio_buffer_init
+
+
+ flow： （5b接收数据）
+
+              EXTI3_IRQHandler -- HAL_GPIO_EXTI_IRQHandler --HAL_GPIO_EXTI_Callback -- process_deca_irq -- dwt_isr 
+              -- audio_rx_done_cb -- audio_rx_process_rx_frame -- dwt_readrxdata -- (rx_buffer) --audio_rx_data_in -- audio_buffer_fill_data 
+
+
+数据流： 5b通过spi读取接收数据  -- rx_buffer --    psAudioInfo->data_buffer.data
+
+-------------------
+
+//IO口的外部中断入口
+ EXTI3_IRQHandler( )
+ 
+  if(__HAL_GPIO_EXTI_GET_IT(DW_IRQ_Pin) != RESET)
+             HAL_GPIO_EXTI_IRQHandler(DW_IRQ_Pin);
+ 
+----------
+
+//IO口的外部中断服务程序
+ HAL_GPIO_EXTI_IRQHandler(  GPIO_Pin)
+ 
+      if (__HAL_GPIO_EXTI_GET_IT(GPIO_Pin) != 0x00U)
+ 
+               __HAL_GPIO_EXTI_CLEAR_IT(GPIO_Pin);
+               HAL_GPIO_EXTI_Callback(GPIO_Pin);
+ 
+
+------------
+
+//IO口的外部中断服务程序
+  HAL_GPIO_EXTI_Callback(  GPIO_Pin)   
+ 
+      switch ( GPIO_Pin ) 
+
+           case DW_IRQ_Pin :     
+        	process_deca_irq();
+
+-----
+ 
+ process_deca_irq( )
+
+     kk1=port_CheckEXT_IRQ();     //或PB3
+     while(kk1 == 1)
+   
+             //dwt_isr();    //API函数，内部调用audio_rx_done_cb
+                       audio_rx_done_cb();
+
+---
+
+ port_CheckEXT_IRQ( )
+ 
+     *port = ( hal_uwb.uwbs->void_cfg)->irqPort;      //GPIOB
+      pin = hal_uwb.uwbs->ext_io_cfg->irqPin;             //EXTI3_IRQn
+
+       return HAL_GPIO_ReadPin(port, pin);
+ 
+---
+
+数据流： 5b通过spi读取接收数据  -- rx_buffer
+audio_rx_done_cb(  *rxd)
+ 
+        uwb_medium_access_t access;
+
+        access.type = UWB_ACCESS_RX_FRAME;
+
+        access.context.status = rxd->status;
+        access.context.status_hi = rxd->status_hi;
+        access.context.rx_flags = rxd->rx_flags;
+        access.context.datalength = rxd->datalength;
+        access.context.dss_stat = rxd->dss_stat;        
+  
+        audio_rx_process_rx_frame(access);   //5b通过spi读取接收数据  -- rx_buffer
+ 
+
+---------------
+
+数据流： 5b通过spi读取接收数据  -- rx_buffer
+audio_rx_process_rx_frame( access )
+ 
+        // size = getAudioInfoPtr()->package_size + FCS_LEN + FRAME_DATA_INDEX;
+                   size = psAudioInfo->package_size + 2 + 9 
+
+        if (access.context.datalength == size)  //copy it to our local buffer
+ 
+                uwb_receive_ok++;
+ 
+                uint16_t rx_buffer_offset = 0;
+ 
+                /*如果使用任务而不是ISR来处理接收数据，请禁用中断以避免系统挂起*/
+ 
+                dwt_readrxdata(rx_buffer+rx_buffer_offset, size,  rx_buffer_offset);          //api 函数
+ 
+                audio_rx_data_in();
+ 
+
+---------------
+
+
+数据流：  rx_buffer   --     psAudioInfo->data_buffer.data
+audio_rx_data_in()
+ 
+        rx_audio_data = rx_buffer + FRAME_DATA_INDEX;  //9     //从第9位开始是音乐数据
+        info = getAudioInfoPtr();  //=psAudioInf
+
+        data_size = info->package_size;
+        new_msg_sn = rx_buffer[FRAME_SN_IDX];    //2
+
+        ++rx_msg_sn;  //序列号
+
+        if (rx_streaming_started)
+ 
+                //把rx_audio_datar存放到psAudioInfo->data_buffer中
+                if (rx_msg_sn == new_msg_sn)        
+                        audio_buffer_fill_data(rx_audio_data, data_size);         //rx_buffer --  psAudioInfo->data_buffer.data
+
+        rx_msg_sn = new_msg_sn;
+
+        // 检查是否要启动streaming
+        //kk1=audio_buffer_data_size()
+                kk1= (psAudioInfo->data_buffer->wr_ptr + .size - .rd_ptr) % .size;
+        if (kk1>= info->data_buffer->size / 2)
+
+                if (!rx_streaming_started)
+                        rx_streaming_started = TRUE;
+
+                        audio_rx_process_trigger();     //功能: 把播放数据存放到i2s_next_frame_data ,再 执行audio_i2s_task
+
+ 
+-------------
+
+//参数：rx_audio_data, data_size
+数据流： data_buffer  --  psAudioInfo->data_buffer.data
+audio_buffer_fill_data(    *data_buffer,    data_size)
+ 
+        //判断psAudioInfo->data_buffer是否有足够的空间，来存放新的音乐数据
+        //audio_buffer_write_check(data_size) 
+        //                buffer_data_size = audio_buffer_data_size();
+                                     return (psAudioInfo->data_buffer->wr_ptr + .size - .rd_ptr) % .size;
+
+
+        //把data_buffer存放到psAudioInfo->data_buffer中
+        if (0 ==    audio_buffer_write_check(data_size) ))        //如有足够的空间
+ 
+                    memcpy(psAudioInfo->data_buffer->data + .wr_ptr,    data_buffer, data_size);
+ 
+                    psAudioInfo->data_buffer->wr_ptr = (.wr_ptr + data_size) % .size;
+  
+
+-----------
+
+ audio_buffer_write_check( data_size )
+ 
+        uint16_t buffer_data_size = audio_buffer_data_size();
+
+        if (psAudioInfo->data_buffer->size - buffer_data_size - 1 < data_size)
+                return -1;
+
+

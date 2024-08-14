@@ -1,0 +1,5 @@
+ 
+
+ // Power on AUDU1787 chip
+  HAL_GPIO_WritePin(DSP_PWR_CTRL_GPIO_Port, DSP_PWR_CTRL_Pin, GPIO_PIN_SET);
+

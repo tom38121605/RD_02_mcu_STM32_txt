@@ -1,0 +1,167 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===============================参考===============================
+
+typedef struct __SPI_HandleTypeDef
+{
+  SPI_TypeDef                *Instance;                    /*!< SPI registers base address               */
+  SPI_InitTypeDef            Init;                         /*!< SPI communication parameters             */
+  uint8_t                    *pTxBuffPtr;                  /*!< Pointer to SPI Tx transfer Buffer        */
+  uint16_t                   TxXferSize;                   /*!< SPI Tx Transfer size                     */
+  __IO uint16_t              TxXferCount;                  /*!< SPI Tx Transfer Counter                  */
+  uint8_t                    *pRxBuffPtr;                  /*!< Pointer to SPI Rx transfer Buffer        */
+  uint16_t                   RxXferSize;                   /*!< SPI Rx Transfer size                     */
+  __IO uint16_t              RxXferCount;                  /*!< SPI Rx Transfer Counter                  */
+  uint32_t                   CRCSize;                      /*!< SPI CRC size used for the transfer       */
+  void (*RxISR)(struct __SPI_HandleTypeDef *hspi);         /*!< function pointer on Rx ISR               */
+  void (*TxISR)(struct __SPI_HandleTypeDef *hspi);         /*!< function pointer on Tx ISR               */
+  DMA_HandleTypeDef          *hdmatx;                      /*!< SPI Tx DMA Handle parameters             */
+  DMA_HandleTypeDef          *hdmarx;                      /*!< SPI Rx DMA Handle parameters             */
+  HAL_LockTypeDef            Lock;                         /*!< Locking object                           */
+  __IO HAL_SPI_StateTypeDef  State;                        /*!< SPI communication state                  */
+  __IO uint32_t              ErrorCode;                    /*!< SPI Error code                           */
+ 
+} SPI_HandleTypeDef;
+
+
+
+static struct dwchip_s *old_dw = NULL;
+
+struct dwchip_s
+{   
+    /*HAL*/
+    struct dwt_spi_s *SPI; // first
+    void(*wakeup_device_with_io)(void);
+
+    /*Driver*/
+    struct dwt_driver_s *dwt_driver;
+    struct dwt_callbacks_s callbacks;
+
+    /* driver configuration */
+    struct dwt_mcps_config_s *config;
+
+    /* MCPS */
+    struct mcps802154_llhw *llhw;
+    struct mcps802154_ops *mcps_ops;
+    struct dw3000_calibration_data *calib_data;
+    struct dwt_mcps_runtime_s *mcps_runtime;
+    struct dwt_mcps_rx_s *rx;
+
+    /* GPIO used to switch off WIFI while transmitting, for example */
+    int8_t coex_gpio_pin;
+    int8_t coex_gpio_active_state;
+
+    /** driver data*/
+    void *priv; // last
+};
+typedef struct dwchip_s dwchip_t;
+
+
+-----------------------------------
+
+struct spi_port_config_s
+{
+    uint32_t idx;
+    uint32_t cs;
+    uint32_t clk;
+    uint32_t mosi;
+    uint32_t miso;
+    uint32_t min_freq;
+    uint32_t max_freq;
+};
+typedef struct spi_port_config_s spi_port_config_t;
+
+struct uwbs_port_config_s
+{
+    const uint16_t irqPin;
+    const uint16_t irqN;
+    const uint16_t rstPin;
+    const uint16_t rstIrqN;
+    const uint16_t wakeUpPin;
+};
+
+struct spi_s
+{
+    void (*cs_low)(void *handler);
+    void (*cs_high)(void *handler);
+    void (*slow_rate)(void *handler);
+    void (*fast_rate)(void *handler);
+    int (*read)(void *handler, uint16_t headerLength, const uint8_t *headerBuffer, uint16_t readlength, uint8_t *readBuffer);
+    int (*write)(void *handler, uint16_t headerLength, const uint8_t *headerBuffer, uint16_t readlength, const uint8_t *readBuffer);
+    int (*read_write)(void *handler, uint8_t *readBuffer, uint16_t readlength, uint8_t *writebuffer, uint16_t writeLength);
+    int (*write_with_crc)(void *handler, uint16_t headerLength, const uint8_t *headerBuffer, uint16_t bodyLength, const uint8_t *bodyBuffer, uint8_t crc8);
+    void *handler;
+};
+typedef struct spi_s spi_t;
+
+struct dwchip_s
+{   
+    /*HAL*/
+    struct dwt_spi_s *SPI; // first
+    void(*wakeup_device_with_io)(void);
+
+    /*Driver*/
+    struct dwt_driver_s *dwt_driver;
+    struct dwt_callbacks_s callbacks;
+
+    /* driver configuration */
+    struct dwt_mcps_config_s *config;
+
+    /* MCPS */
+    struct mcps802154_llhw *llhw;
+    struct mcps802154_ops *mcps_ops;
+    struct dw3000_calibration_data *calib_data;
+    struct dwt_mcps_runtime_s *mcps_runtime;
+    struct dwt_mcps_rx_s *rx;
+
+    /* GPIO used to switch off WIFI while transmitting, for example */
+    int8_t coex_gpio_pin;
+    int8_t coex_gpio_active_state;
+
+    /** driver data*/
+    void *priv; // last
+};
+typedef struct dwchip_s dwchip_t;
+
+--------
+
+struct dwt_spi_s
+{ 
+    int (*readfromspi)(uint16_t headerLength, /*const*/ uint8_t *headerBuffer, uint16_t readlength, uint8_t *readBuffer); 
+    int (*writetospi)(uint16_t headerLength, const uint8_t *headerBuffer, uint16_t bodyLength, const uint8_t *bodyBuffer);
+ 
+    int (*writetospiwithcrc)(uint16_t headerLength, const uint8_t *headerBuffer, uint16_t bodyLength, const uint8_t *bodyBuffer, uint8_t crc8);
+
+     void (*setslowrate)(void);
+     void (*setfastrate)(void);
+};
+
+ 

@@ -1,0 +1,399 @@
+ 
+
+
+========================关于psAudioInfo的参数1/1======== ============================
+
+
+数据流： audio_data_circular_buffer -- psAudioInfo->data_buffer 
+ audio_buffer_init()
+ 
+        if (!psAudioInfo)
+                psAudioInfo = &audioInfo;
+ 
+        memset(psAudioInfo, 0, all);
+
+        psAudioInfo->ms_audio_sample_size = AUDIO_MS_SAMPLE_SIZE;
+        psAudioInfo->package_size                 = AUDIO_UWB_PACKAGE_SIZE;
+
+        psAudioInfo->data_buffer = &audio_data_circular_buffer;
+        memset(psAudioInfo->data_buffer, 0x0, sizeof(audio_data_circular_buffer_t));
+        psAudioInfo->data_buffer->size     = AUDIO_UWB_BUFFER_SIZE;
+        psAudioInfo->data_buffer->data     = audio_data_buffer;
+        psAudioInfo->data_buffer->wr_ptr = 0;
+        psAudioInfo->data_buffer->rd_ptr = 0;
+
+        if (!psAudioInfo->data_buffer->data)
+                return -1;
+         
+        memset(psAudioInfo->data_buffer->data, 0xA, psAudioInfo->data_buffer->size);
+
+        psAudioInfo->access_buffer = uwb_medium_access_buffer;
+        psAudioInfo->next_access_index = 0;
+        psAudioInfo->last_access_index = 0;
+
+
+========================关于rf_tuning_config_ram的参数1/1========好像没有调用============================
+
+
+ restore_rf_tuning_default_config( )  
+ 
+    uint8_t pg_delay = rf_tuning_config_ram.txConfig.PGdly;
+    uint32_t tx_power = rf_tuning_config_ram.txConfig.power;
+
+    memcpy( rf_tuning_config_ram,  rf_tuning_config_flash_default, all );
+
+    rf_tuning_config_ram.txConfig.PGdly = pg_delay;
+    rf_tuning_config_ram.txConfig.power = tx_power;
+ 
+---
+
+static const rf_tuning_t rf_tuning_config_flash_default =
+{
+    .txConfig.PGdly   = 0x34,
+    .txConfig.power   = DEFAULT_TX_POWER_REGULAR_PULSE_AOA,
+    .txConfig.PGcount = 0,
+    .pdoaOffset_deg   = DEFAULT_PDOAOFF,
+    .rngOffset_mm     = DEFAULT_RNGOFF,
+    .antRx_a          = DEFAULT_ANTD,
+    .antTx_a          = DEFAULT_ANTD,
+    .antRx_b          = DEFAULT_ANTD,
+    .antenna          = { DEFAULT_ANTENNA_TYPE, DEFAULT_ANTENNA_TYPE, 
+                          ANT_TYPE_NONE,        ANT_TYPE_NONE },
+    .xtalTrim         = (DEFAULT_XTAL_TRIM),
+    .paverage         = 10,
+    //QM35725 specific
+    .tx_ant           = 1,  //select ANT1 as TX
+    .rxa_ant          = 3,  //select ANT3 as RX, PATH A
+    .rxb_ant          = 2,  //select ANT2 as, RX PATH B
+    .lna1             = 0,  //BYPASS
+    .lna2             = 0,  //BYPASS
+    .pa               = 0   //LOW PA
+};
+
+
+========================关于dw3000_spi_fct的参数1/1====================================
+
+
+probe( ) 
+
+    dw3000_spi_fct.readfromspi = read_from_spi;
+    dw3000_spi_fct.writetospi  = write_to_spi;
+    dw3000_spi_fct.writetospiwithcrc = write_to_spi_with_crc;
+    dw3000_spi_fct.setslowrate = spi_slow_rate;
+    dw3000_spi_fct.setfastrate = spi_fast_rate;
+
+
+
+struct dwt_spi_s
+{ 
+    int (*readfromspi)(uint16_t headerLength, /*const*/ uint8_t *headerBuffer, uint16_t readlength, uint8_t *readBuffer); 
+    int (*writetospi)(uint16_t headerLength, const uint8_t *headerBuffer, uint16_t bodyLength, const uint8_t *bodyBuffer);
+ 
+    int (*writetospiwithcrc)(uint16_t headerLength, const uint8_t *headerBuffer, uint16_t bodyLength, const uint8_t *bodyBuffer, uint8_t crc8);
+
+     void (*setslowrate)(void);
+     void (*setfastrate)(void);
+};
+
+static struct  dwt_spi_s   dw3000_spi_fct;
+
+
+
+========================关于dw3000_probe_interft的参数1/1====================================
+
+
+probe( ) 
+
+ 
+    //dw3000_spi_fct
+    dw3000_spi_fct.readfromspi = read_from_spi;
+    dw3000_spi_fct.writetospi  = write_to_spi;
+    dw3000_spi_fct.writetospiwithcrc = write_to_spi_with_crc;
+    dw3000_spi_fct.setslowrate = spi_slow_rate;
+    dw3000_spi_fct.setfastrate = spi_fast_rate;
+ 
+    //dw3000_probe_interf
+    dw3000_probe_interf.dw = hal_uwb.uwbs->dw;                                                 // &local_hal_dw
+    dw3000_probe_interf.spi = &dw3000_spi_fct;                                                       //  hal_uwb_init_spi(hal_uwb.uwbs->spi_io_cfg);
+    dw3000_probe_interf.wakeup_device_with_io = hal_uwb.wakeup_with_io;     //hal_uwb_wakeup_with_io
+
+
+
+
+========================关于uwbs的参数1/2======spi3==============================
+
+
+struct dw_s   uwbs =
+{
+    .devid = 0,
+    .spi_io_cfg = &dw3000_spi_io_cfg,              //看下面 cfg
+    .ext_io_cfg = &dw3000_ext_io_cfg,             //看下面 cfg
+    .void_cfg   = &dw3000_void_io_cfg,            //看下面 cfg
+
+    .spi = NULL,  /* SPI functions */                  //看下面的init
+    .dw  = NULL   /* Driver function */             //看下面的init
+};
+
+
+---
+
+init( )
+
+    hal_uwb.uwbs = &uwbs;
+    hal_uwb.uwbs->dw = &local_hal_dw;  //看下面
+
+    //hal_uwb.uwbs->spi = hal_uwb_init_spi(hal_uwb.uwbs->spi_io_cfg);   
+           hal_uwb.uwbs->spi = spi3; 
+
+           //spi3->slow_rate(spi_handler3);
+                    spi_slow_rate_(spi_handler3);
+
+---
+
+static const struct spi_s    spi3 =
+{
+    .cs_high = spi_cs_high_,
+    .cs_low = spi_cs_low_,
+    .slow_rate = spi_slow_rate_,
+    .fast_rate = spi_fast_rate_,
+    .read = readfromspi_,
+    .write = writetospi_,
+    .write_with_crc = NULL,
+    .handler = &spi_handler3
+};
+
+static struct dwchip_s local_hal_dw = 
+{
+    .SPI = NULL,
+    .wakeup_device_with_io = NULL,
+    .dwt_driver = NULL,
+    .callbacks = {0},
+    .config = NULL,
+    .llhw = NULL,
+    .mcps_ops = NULL,
+    .calib_data = NULL,
+    .mcps_runtime = NULL,
+    .rx = NULL,
+    .coex_gpio_pin = 0,
+    .coex_gpio_active_state = 0,
+    .priv = NULL
+};
+
+ spi_handle_t    spi_handler3 =
+{ 
+    .phspi          = &hspi3,
+    .prescaler_slow = SPI_BAUDRATEPRESCALER_32,   // 4.5 MHz
+    .prescaler_fast = SPI_BAUDRATEPRESCALER_4,       // 36 MHz
+    .csPin          = DW_CS_Pin,
+    .csPort         = DW_CS_GPIO_Port,
+    .Lock           = HAL_UNLOCKED,
+ 
+    .TxComplete     = TXRX_COMPLETE,
+    .RxComplete     = TXRX_COMPLETE,
+ 
+};
+ 
+------------------------- 
+
+static const spi_port_config_t dw3000_spi_io_cfg =
+{
+    .idx = 3
+};
+
+static const struct uwbs_port_config_STM_s dw3000_void_io_cfg =
+{
+	.irqPort       = DW_IRQ_GPIO_Port,            //GPIOB
+	.rstPort       = DW_RST_GPIO_Port,             //GPIOD
+	.wakeUpPort    = DW_WUP_GPIO_Port,    //GPIOB
+};
+
+
+static const struct uwbs_port_config_s dw3000_ext_io_cfg =
+{
+    .irqPin        = DW_IRQ_Pin,                          //GPIO_PIN_3
+    .irqN          = DW_SPI_EXIT_IRQ_NUM,       // EXTI3_IRQn
+    .rstPin        = DW_RST_Pin,                            //GPIO_PIN_2
+    .rstIrqN       = DW_RST_EXIT_IRQ_NUM,      //EXTI2_IRQn
+    .wakeUpPin     = DW_WUP_Pin,                   //GPIO_PIN_4
+};
+
+
+------------------
+
+struct dw_s
+{
+    uint32_t devid;
+    const struct spi_port_config_s *spi_io_cfg;
+    const struct uwbs_port_config_s *ext_io_cfg;
+    const void *void_cfg;
+    struct spi_s *spi;   /* spi instance to this chip */
+    struct dwchip_s *dw; /* driver instance to the chip */
+};
+ 
+
+
+
+========================关于uwbs的参数2/2====================================
+
+probe( ) 
+ 
+   ......
+
+    if (ret == 0)   // 成功找到dw3000设备 
+        ......
+        read_from_spi( 1, &addr, 4, buf);
+        hal_uwb.uwbs->devid = buf[3] << 24 | buf[2] << 16 | buf[1] << 8 | buf[0];
+
+
+
+========================关于hal_uwb的参数1/1====================================
+
+struct hal_uwb_s    hal_uwb =
+{
+    .init  = init,          //init spi/comm to the chip
+    .probe = probe,         //probe driver chip
+
+    .irq_init = hal_uwb_init_irq,     //init the UWB IRQ of the MCU
+    .disableIRQ = hal_uwb_disable_irq,//disable UWB IRQ on MCU
+    .enableIRQ = hal_uwb_enable_irq,  //enable UWB IRQ on MCU
+    .reset = hal_uwb_reset_chip,      //HW reset of UWB
+
+    /* decoupled from MCU to chip IO */
+    .wakeup_start = hal_uwb_wakeup_start,
+    .wakeup_end   = hal_uwb_wakeup_end,
+    .wakeup_fast  = hal_uwb_wakeup_fast,
+    .wakeup_with_io = hal_uwb_wakeup_with_io,
+
+    .sleep_config     = hal_uwb_sleep_config,
+    .sleep_enter      = hal_uwb_sleep_enter,
+    .sleep_status_set = hal_uwb_sleep_status_set,
+    .sleep_status_get = hal_uwb_sleep_status_get,
+    .sleep_mode_set = hal_uwb_sleep_mode_set,
+    .sleep_mode_get = hal_uwb_sleep_mode_get,
+
+    .mcu_sleep_config = hal_uwb_mcu_sleep_config, /* MCU specific preconfig */
+    .mcu_suspend_clk  = hal_uwb_mcu_hfclk_off,  /* MCU XTAL -> MCU RC  */
+    .mcu_resume_clk   = hal_uwb_mcu_hfclk_on,   /* MCU RC -> MCU XTAL */
+
+    //review need of below
+    //.disable_wake_init = hal_uwb_disable_wake_init,
+    .stop_all_uwb = hal_uwb_port_stop_all_UWB,
+    .disable_irq_and_reset = hal_uwb_disable_irq_and_reset,
+    .deinit_callback = hal_deinit_callback,
+
+    .is_aoa = hal_uwb_is_AoA,
+
+    .is_sip = hal_uwb_return_false,
+    .sip_configure = NULL,
+
+    .uwbs = NULL
+};
+
+---
+
+struct hal_uwb_s
+{
+    void (*init)(void);             // init MCU I/O to the DW chip
+    int (*probe)(void);             // probe the driver
+
+    void (*irq_init)(void);         // init MCU IRQ line
+    void (*enableIRQ)(void);        // enable IRQ from UWBS
+    void (*disableIRQ)(void);       // disable IRQ from UWBS
+
+    void (*reset)(void);            // HW reset of UWBS, Note: this will update the sleep status
+    
+    // UWB various wakeup mechanisms
+    void (*wakeup_start)(void);     // start waking up UWBS, Note: this will update the sleep status
+    void (*wakeup_end)(void);       // stop waking up UWBS
+    void (*wakeup_fast)(void);      // wakeup UWBS without final pause, Note: this will update the sleep status
+    void (*wakeup_with_io)(void);   // wakeup UWBS with guarantee. Note: this will update the sleep status
+
+    // UWB sleeping
+    sleep_status_t vsleep_status;
+    void (*sleep_status_set)(sleep_status_t); // set local sleep status to the new value. Avoid to use this fn() directly.
+    sleep_status_t (*sleep_status_get)(void); // get local UWB sleeping status
+    void (*sleep_config)(void);               // configure UWB for sleeping
+    void (*sleep_enter)(void);                // enter deep sleep if not already. Note: this will update the status
+
+    sleep_mode_t vsleep_mode;
+    void (*sleep_mode_set)(sleep_mode_t);     // specify in which mode UWB can sleep NONE/IRQ/APP
+    sleep_mode_t (*sleep_mode_get)(void);     // get the current UWB can sleep mode
+
+    // MCU sleeping
+    void (*mcu_sleep_config)(void); // enable mcu-specific init features
+    void (*mcu_suspend_clk)(void);  // turn off MCU clock XTAL
+    void (*mcu_resume_clk)(void);   // turn on MCU clock XTAL
+
+    aoa_enable_t (*is_aoa)(void);   // chip + PCB design both support AOA
+
+    // SIP support
+    bool (*is_sip)(void);           // check if it is a SIP device
+    void (*sip_configure)(struct uwbs_sip_config_s *sip_cfg);    // configuring SIP device
+
+    struct dw_s *uwbs;              // UWB Subsystem connection: SPI, I/O and Driver
+
+    void (*stop_all_uwb)(void);
+    error_e (*disable_irq_and_reset)(int);
+    void (*deinit_callback)(void);
+};
+
+---
+
+
+
+
+========================关于DEFAULT_APP的参数1/1====================================
+
+
+ const app_definition_t    helpers_app_audio_rx[];
+
+const app_definition_t helpers_app_audio_rx[] __attribute__((section(".known_apps"))) = 
+{
+    { "AUDIO_RX", mAPP, 
+         audio_rx_helper,              //这里
+         audio_rx_terminate, 
+          waitForCommand, 
+          command_parser, 
+          &known_commands_audio_rx}
+
+};
+
+
+---
+
+#define DEFAULT_APP   helpers_app_audio_rx
+
+static const app_definition_t *default_app      __attribute__(...) = DEFAULT_APP;
+
+static void restore_default_app(void) 
+{
+    default_app  = DEFAULT_APP;
+}
+
+
+
+-------------
+
+
+struct app_definition_s
+{
+    char *app_name;
+    mode_e app_mode;
+    void (*helper)(void const *argument);
+    void (*terminate)(void);
+    usb_data_e (*on_rx)(uint8_t *pBuf , uint16_t len, uint16_t *read_offset,uint16_t cyclic_size);
+    void (*command_parser)(usb_data_e res, char * text);
+    const struct command_s *sub_command;
+};
+typedef struct app_definition_s app_definition_t;
+
+
+
+
+
+
+
+
+
+
+

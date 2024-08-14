@@ -1,0 +1,646 @@
+
+=======================uart5初始化=============================
+
+
+flow：
+
+           BoardInit  -- MX_DMA_Init -- __HAL_RCC_DMA1_CLK_ENABLE
+           BoardInit  --  MX_UART5_Init  --  HAL_UART_Init  -- HAL_UART_MspInit  --  HAL_DMA_Init -- __HAL_LINKDMA
+                              -- __HAL_UART_ENABLE  -- MX_NVIC_Init
+
+
+---------------------------------------------------------------------------
+
+main( )
+
+         BoardInit();
+
+
+----------------------------------
+
+ BoardInit( )
+ 
+        HAL_DBGMCU_EnableDBGSleepMode();
+        HAL_DBGMCU_EnableDBGStopMode();
+        HAL_DBGMCU_EnableDBGStandbyMode();
+
+        SCB->VTOR = FLASH_BANK1_BASE;
+ 
+        HAL_Init();
+ 
+        SystemClock_Config();
+        PeriphCommonClock_Config();
+ 
+ 
+        MX_UART5_Init();
+
+
+------------------
+
+
+MX_UART5_Init(void)
+
+        huart5.Instance = UART5;
+        huart5.Init.BaudRate = 115200;
+        huart5.Init.WordLength = UART_WORDLENGTH_8B;
+        huart5.Init.StopBits = UART_STOPBITS_1;
+        huart5.Init.Parity = UART_PARITY_NONE;
+        huart5.Init.Mode = UART_MODE_TX_RX;
+        huart5.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+        huart5.Init.OverSampling = UART_OVERSAMPLING_16;
+        huart5.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+        huart5.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+        huart5.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+
+        HAL_UART_Init(&huart5) ; 
+ 
+        HAL_UARTEx_SetTxFifoThreshold(&huart5, UART_TXFIFO_THRESHOLD_1_8) ;
+        HAL_UARTEx_SetRxFifoThreshold(&huart5, UART_RXFIFO_THRESHOLD_1_8)  ;
+
+        HAL_UARTEx_DisableFifoMode(&huart5)    ;
+ 
+
+----------
+
+
+参数：huart5
+ HAL_UART_Init( *huart) 
+
+    if (huart->gState == HAL_UART_STATE_RESET) 
+        huart->Lock = HAL_UNLOCKED;        
+        HAL_UART_MspInit(huart);         // Init the low level hardware : GPIO, CLOCK 
+  
+    huart->gState = HAL_UART_STATE_BUSY;
+    __HAL_UART_DISABLE(huart);
+ 
+    if (UART_SetConfig(huart) == HAL_ERROR) 
+        return HAL_ERROR; 
+
+    if (huart->AdvancedInit.AdvFeatureInit != UART_ADVFEATURE_NO_INIT)   
+        UART_AdvFeatureConfig(huart);
+  
+    CLEAR_BIT(huart->Instance->CR2, (USART_CR2_LINEN | USART_CR2_CLKEN));
+    CLEAR_BIT(huart->Instance->CR3, (USART_CR3_SCEN | USART_CR3_HDSEL | USART_CR3_IREN));
+
+    __HAL_UART_ENABLE(huart);
+
+ 
+--------
+
+//设置uart5相关dma的参数，及初始化dma
+参数：huart5
+ HAL_UART_MspInit( * huart)
+ 
+    GPIO_InitTypeDef                   GPIO_InitStruct = {0};
+    RCC_PeriphCLKInitTypeDef    PeriphClkInitStruct = {0};
+
+    if(huart->Instance==UART5)
+ 
+        PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_UART5;
+        PeriphClkInitStruct.Usart234578ClockSelection = RCC_USART234578CLKSOURCE_D2PCLK1;
+        if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+            Error_Handler(); 
+ 
+        __HAL_RCC_UART5_CLK_ENABLE();
+        __HAL_RCC_GPIOB_CLK_ENABLE(); 
+ 
+        GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_13;   //PB12 --  UART5_RX, //PB13 --  TX
+        GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+        GPIO_InitStruct.Pull = GPIO_NOPULL;
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+        GPIO_InitStruct.Alternate = GPIO_AF14_UART5;
+        HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+        /* UART5 DMA Init */
+        /* UART5_TX Init */
+        hdma_uart5_tx.Instance = DMA1_Stream3;
+        hdma_uart5_tx.Init.Request = DMA_REQUEST_UART5_TX;
+        hdma_uart5_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
+        hdma_uart5_tx.Init.PeriphInc = DMA_PINC_DISABLE;
+        hdma_uart5_tx.Init.MemInc = DMA_MINC_ENABLE;
+        hdma_uart5_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+        hdma_uart5_tx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+        hdma_uart5_tx.Init.Mode = DMA_NORMAL;
+        hdma_uart5_tx.Init.Priority = DMA_PRIORITY_LOW;
+        hdma_uart5_tx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+
+        if (HAL_DMA_Init(&hdma_uart5_tx) != HAL_OK)
+            Error_Handler(); 
+
+        //__HAL_LINKDMA(huart5,hdmatx,hdma_uart5_tx);
+                               huart5->hdmatx = &hdma_uart5_tx;  
+                               hdma_uart5_tx.Parent =  huart5;       
+
+
+        /* UART5_RX Init */
+        hdma_uart5_rx.Instance = DMA1_Stream1;
+        hdma_uart5_rx.Init.Request = DMA_REQUEST_UART5_RX;
+        hdma_uart5_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
+        hdma_uart5_rx.Init.PeriphInc = DMA_PINC_DISABLE;
+        hdma_uart5_rx.Init.MemInc = DMA_MINC_ENABLE;
+        hdma_uart5_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+        hdma_uart5_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+        hdma_uart5_rx.Init.Mode = DMA_NORMAL;
+        hdma_uart5_rx.Init.Priority = DMA_PRIORITY_LOW;
+        hdma_uart5_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+
+        if (HAL_DMA_Init(&hdma_uart5_rx) != HAL_OK)
+            Error_Handler();
+ 
+        //__HAL_LINKDMA(huart5,hdmarx,hdma_uart5_rx);
+              huart5->hdmarx = &hdma_uart5_rx;
+              hdma_uart5_rx.Parent = huart5;
+            
+
+------------
+
+
+参数：hdma_uart5_Tx
+HAL_DMA_Init( *hdma)     //here for uart5
+        
+        uint32_t registerValue;
+        uint32_t tickstart = HAL_GetTick();
+        DMA_Base_Registers         *regs_dma;
+        BDMA_Base_Registers        *regs_bdma; 
+
+        if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0U)     // DMA1 or DMA2 instance  （uart5, spi3）
+        
+                hdma->State = HAL_DMA_STATE_BUSY;
+                __HAL_UNLOCK(hdma);
+                __HAL_DMA_DISABLE(hdma);
+
+                while((( hdma->Instance)->CR & DMA_SxCR_EN) != 0U)      //看是否成功disable
+                                return HAL_DMA_ERROR_TIMEOUT;
+
+                //----- 读取和设DMA的CR寄存器 -----
+
+                registerValue = (hdma->Instance)->CR;
+
+                //清0下面各位
+                registerValue &= ~( DMA_SxCR_MBURST |    //memory 传输增量  --待理解
+                                                     DMA_SxCR_PBURST |     //外设 传输增量  --待理解
+                                                     DMA_SxCR_PL  |             //优先级
+                                                     DMA_SxCR_MSIZE  |      //memory datasize
+                                                     DMA_SxCR_PSIZE  |       //外设 datasize
+                                                     DMA_SxCR_MINC  |       //memory 地址跟随模式   
+                                                     DMA_SxCR_PINC   |        //外设 地址跟随模式
+                                                     DMA_SxCR_CIRC   |         //圆形模式
+                                                     DMA_SxCR_DIR   |          //数据传输方向
+                                                     DMA_SxCR_CT     |         //当前内存是指向memory0还是memory1 （双缓冲模式下）
+                                                     DMA_SxCR_DBM);         //是否双缓冲
+
+                 registerValue |=   hdma->Init.Direction  |         //DMA_MEMORY_TO_PERIPH ， //  DMA_SxCR, 数据传输方向 MEMORY_TO_PERIPH
+                                               hdma->Init.PeriphInc  |        //DMA_PINC_DISABLE                   // DMA_SxCR, 外设为固定地址
+                                               hdma->Init.MemInc  |           //DMA_MINC_ENABLE                  // DMA_SxCR, memory 为地址跟随增加
+                                               hdma->Init.PeriphDataAlignment |    //DMA_PDATAALIGN_BYTE;     // DMA_SxCR, PBURST=0，外设 传输增量为0
+                                               hdma->Init.MemDataAlignment |      //DMA_MDATAALIGN_BYTE      // DMA_SxCR, MBURST=0，  memory 传输增量为0
+                                               hdma->Init.Mode  |                              //DMA_DMA_NORMAL              // DMA_SxCR, 0, 非圆形模式
+                                               hdma->Init.Priority;                              //DMA_DMA_PRIORITY_LOW   // DMA_SxCR, 优先级为低
+
+                /* the Memory burst and peripheral burst are not used when the FIFO is disabled */
+                if(hdma->Init.FIFOMode == DMA_FIFOMODE_ENABLE)    //TX和RX, 都为否
+                       ......(忽略)
+
+                /* Work around for Errata 2.22: UART/USART- DMA transfer lock: DMA stream could be
+                       lock when transferring data to/from USART/UART */，待理解       
+ 
+                        if(IS_DMA_UART_USART_REQUEST(hdma->Init.Request) != 0U)          (TX满足，RX不满足)             
+                                registerValue |= DMA_SxCR_TRBUFF;                     //DMA_SxCR,，使能bufferable传输，待理解                      
+ 
+                //写入DMA的CR寄存器
+                (hdma->Instance)->CR = registerValue;
+
+
+                 //-----读取和设置DMA的FCR寄存器-----
+
+                registerValue = ( hdma->Instance)->FCR;
+                registerValue &=~(DMA_SxFCR_DMDIS | DMA_SxFCR_FTH);  //清零DMDIS,  FTH，或 为直接模式全速FIFO
+
+                registerValue |= hdma->Init.FIFOMode;           //DMA_SxFCR，DMDIS=0, 不使能DMDIS
+
+                if(hdma->Init.FIFOMode == DMA_FIFOMODE_ENABLE)   //如果DMDIS=1,则下面  -- 待理解 （不满足条件，可忽略）                
+                        ...... (忽略)                                          
+
+                //写入DMA的FCR寄存器
+                ( hdma->Instance)->FCR = registerValue;
+
+                //------设置LIFCR-----
+
+                regs_dma =  DMA_CalcBaseAndBitshift(hdma);   //或0--LISR
+
+                //清LIFCR中的streaming3的所有中断标志
+                regs_dma->IFCR = 0x3FUL << (hdma->StreamIndex & 0x1FU); //= 0x3f<<22  （或22指向streaming3）
+
+         
+        else if(IS_BDMA_CHANNEL_INSTANCE(hdma->Instance) != 0U) /* BDMA instance(s) */ 
+              ...... (忽略)
+   
+        else    
+              ...... (忽略)
+    
+
+        if(IS_DMA_DMAMUX_ALL_INSTANCE(hdma->Instance) != 0U) /* No DMAMUX available for BDMA1 */
+              ...... (忽略)
+   
+        hdma->ErrorCode = HAL_DMA_ERROR_NONE; 
+        hdma->State = HAL_DMA_STATE_READY;
+ 
+ 
+---
+
+typedef struct
+{
+  __IO uint32_t ISR;    //中断状态标志
+  __IO uint32_t Reserved0;
+  __IO uint32_t IFCR;  //清中断标志
+} DMA_Base_Registers;
+
+
+DMA_CalcBaseAndBitshift(  *hdma)
+ 
+    if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0U) /* DMA1 or DMA2 instance */
+     
+        stream_number = (( ( hdma->Instance) & 0xFFU) - 16U) / 24U;  //（0x58-16)/24=3   //或表示DMA_streaming3， 待验证
+
+        static const uint8_t flagBitshiftOffset[8U] = {0U, 6U, 16U, 22U, 0U, 6U, 16U, 22U};
+        hdma->StreamIndex = flagBitshiftOffset[stream_number & 0x7U]; //=flagBitshiftOffset[3] = 22  //待验证
+
+        if (stream_number > 3U)
+            hdma->StreamBaseAddress = (  hdma->Instance  &  (~0x3FFU) ) + 4U ;    // return pointer to HISR and HIFCR 
+         
+        else
+            hdma->StreamBaseAddress = (  hdma->Instance  &  (~0x3FFU));  //=0x58 & 0xfc00=0 , 返回指向 LISR and LIFCR    
+         
+    return hdma->StreamBaseAddress;
+
+
+-------------------
+
+
+//打开跟UART5相关的中断，含相关DMA的中断 （并设置中断优先级）
+MX_NVIC_Init( )
+ 
+    // UART5_IRQn 
+    HAL_NVIC_SetPriority(UART5_IRQn, PRIO_UART5_IRQn, 0);
+    HAL_NVIC_EnableIRQ(UART5_IRQn);
+
+    // DMA1_Stream1_IRQn   //UART5 RX
+    HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, PRIO_DMA1_Stream1_IRQn, 0);
+    HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn); 
+
+    // DMA1_Stream3_IRQn   //UART5 TX
+    HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, PRIO_DMA1_Stream3_IRQn, 0);
+    HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn); 
+ 
+
+
+=======================把uart5要发送的数据保存到txHandle.Report.buf中 =========以audio_rx为例====================
+
+
+flow：
+
+    BoardInit  --  MX_TIM4_Init  -- HAL_TIM_IRQHandler  --   HAL_TIM_PeriodElapsedCallback -- audio_rx_debug_output  --  copy_tx_msg  --  (txHandle.Report.buf)
+
+
+数据流：  （TIM4）  --  debug_log_buffer  --  txHandle.Report.buf      
+
+
+--------------------------------------------------------------------------
+
+
+
+ main( )
+  
+    BoardInit();
+
+
+--------------------------------------
+
+BoardInit(void)
+
+    MX_TIM4_Init();
+
+----------------------------------------
+
+//参数： TIM4
+HAL_TIM_IRQHandler( *htim)
+ 
+    if (__HAL_TIM_GET_FLAG(htim, TIM_FLAG_UPDATE) != RESET)
+ 
+        if (__HAL_TIM_GET_IT_SOURCE(htim, TIM_IT_UPDATE) != RESET)
+ 
+            __HAL_TIM_CLEAR_IT(htim, TIM_IT_UPDATE); 
+            HAL_TIM_PeriodElapsedCallback(htim);      //here
+ 
+ 
+
+---------------------
+
+ HAL_TIM_PeriodElapsedCallback(  *htim)
+
+    if (htim->Instance == TIM4) 
+          audio_rx_debug_output();
+ 
+ 
+
+----------------------
+
+audio_rx_debug_output()
+     
+    if (  uwb_receive_ok || uwb_receive_error     || uwb_recieve_timeout || uwb_receive_msg_error
+           || uwb_receive_msg_retry || fill_buffer_error     || fetch_buffer_error || audio_data_output_error)
+
+        debug_receive_ok[debug_index] = uwb_receive_ok;
+        debug_receive_err[debug_index] = uwb_receive_error;
+        debug_receive_to[debug_index] = uwb_receive_msg_error;
+        debug_audio_i2s_call[debug_index] = audio_data_output_Call;
+
+        if (++debug_index > 9)
+            debug_index = 0;
+
+        sprintf(  debug_log_buffer, "\"R:%5d\",\"E:%5d\",\"T:%5d\",\"S:%5d\",\"Buffer:%5d-%5d\",\"Retry:%5d-%5d\",\"I2s:%5d\"\r\n", uwb_receive_ok, 
+                       uwb_receive_error, uwb_recieve_timeout, uwb_receive_msg_error, fill_buffer_error, fetch_buffer_error,
+                       uwb_receive_msg_retry, audio_data_output_error, audio_i2s_pll_updated);
+
+        copy_tx_msg( debug_log_buffer, len--all);
+
+        uwb_receive_ok          = 0;
+        uwb_receive_error       = 0;
+        uwb_recieve_timeout     = 0;
+        uwb_receive_msg_error   = 0;
+        uwb_receive_msg_retry   = 0;
+        fill_buffer_error       = 0;
+        fetch_buffer_error      = 0;
+        audio_data_output_error = 0;
+        audio_i2s_pll_updated   = 0;
+        audio_data_output_Call = 0;
+  
+--------------------------
+
+
+//把要输出的log，先保存到txHandle.Report.buf中，在后台通过flushing 任务发送出去
+ copy_tx_msg(  *str,   len)
+ 
+    error_e  ret = _NO_ERR;
+    uint16_t head, tail;
+    const uint16_t size = sizeof(txHandle.Report.buf) / sizeof(txHandle.Report.buf[0]);
+
+    if(osMutexWait(tx_buffer_mutex, USB_UART_MUTEX_TIMEMOUT_MS) != osOK) 
+        return _ERR;
+ 
+    head = txHandle.Report.head;
+    tail = txHandle.Report.tail;
+
+    if (CIRC_SPACE(head, tail, size) > len)
+ 
+        while (len > 0)
+       
+            txHandle.Report.buf[head] = *(str++);
+            head = (head + 1) & (size - 1);
+            len--;
+
+        txHandle.Report.head = head;
+
+    osMutexRelease(tx_buffer_mutex);
+ 
+
+
+
+=======================uart5发送txHandle.Report.buf中的数据==========通过flash task===================
+  
+HAL_I2S_Transmit_DMA
+
+flow:  
+
+       FlushTask  -- flush_report_buf  --  deca_uart_transmit  --  HAL_UART_Transmit_DMA  --  HAL_DMA_Start_IT  --  DMA_SetConfig
+       --  HAL_DMA_IRQHandler  --  hdma_uart5_tx->XferCpltCallback  --  UART_DMATransmitCplt
+
+
+数据处理：  txHandle.Report.buf  --  ubuf -- huart->pTxBuffPtr  --   huart->Instance->TDR    
+
+大体思路：
+     数据从huart->pTxBuffPtr进来，设置dma的数据长度，非双缓冲，起始地址pTxBuffPtr，目标地址TDR，清除dma中断状态。
+     使能DMA中断（传送完成，传送一半），设置串口的CR3.7,开启串口的dma传送
+
+
+-----------------------------------------------------------
+
+
+FlushTask(void const *argument)
+
+     flush_report_buf( )
+
+
+---------------------------
+
+
+数据流：  txHandle.Report.buf  -- ubu
+flush_report_buf( )
+ 
+        int   size = sizeof(txHandle.Report.buf) / sizeof(txHandle.Report.buf[0]);
+ 
+        int head = txHandle.Report.head;
+        int tail = txHandle.Report.tail;
+
+        int len = CIRC_CNT(head, tail, size);
+    
+        Timer.start(&tmr);
+
+        if(len > 0)         
+                do
+                {
+                       //把report.buf存入到ubuf
+                        chunk = MIN(sizeof(ubuf), len);
+
+                        for (int i = 0; i < chunk; i++)                         
+                                ubuf[i] = txHandle.Report.buf[tail];
+                                tail = (tail + 1) & (size - 1);                       
+
+                        len -= chunk;
+                        txHandle.Report.tail = tail;
+
+                        // ubuf 打印到uart5
+                        if (get_uartEn())                        
+
+                       //deca_uart_transmit(ubuf, chunk)
+                                HAL_UART_Transmit_DMA(&huart5, ptr, sz);        // huart5, ubuf, chunk                
+
+                } while(len > 0 && (AppGet()->app_mode & APP_BLOCK_FLUSH) );
+     
+----
+
+ get_uartEn( ) 
+    return uartEn == 1;
+ 
+
+-----------
+
+//参数：huart5,  ubuf,  chunk
+数据流： ubuf  -- huart->pTxBuffPtr
+HAL_UART_Transmit_DMA(*huart,   *pData,   Size)  //或注释，待验证
+  
+    huart->pTxBuffPtr  = pData;
+    huart->TxXferSize  = Size;
+    huart->TxXferCount = Size;
+ 
+    huart->gState = HAL_UART_STATE_BUSY_TX;
+
+    if (huart->hdmatx != NULL) 
+
+            hdma_uart5_tx->XferCpltCallback = UART_DMATransmitCplt;
+            hdma_uart5_tx->XferHalfCpltCallback = UART_DMATxHalfCplt;
+            hdma_uart5_tx->XferErrorCallback = UART_DMAError;
+            hdma_uart5_tx->XferAbortCallback = NULL;
+
+            //配置DMA的原始地址和目标地址， 使能DMA中断
+            if (HAL_DMA_Start_IT(huart->hdmatx,  huart->pTxBuffPtr,   UART5->TDR, Size) != HAL_OK)
+
+                    huart->ErrorCode = HAL_UART_ERROR_DMA;
+                    huart->gState = HAL_UART_STATE_READY;
+                    return HAL_ERROR;
+          
+ 
+    __HAL_UART_CLEAR_FLAG(huart, UART_CLEAR_TCF);
+    __HAL_UNLOCK(huart);
+
+    /* Enable the DMA transfer for transmit request by setting the DMAT bit     in the UART CR3 register */
+    ATOMIC_SET_BIT( UART5->CR3, USART_CR3_DMAT);   //CR3.7=1, 开启UART5的dma传送
+
+ 
+-----
+
+//配置DMA的原始地址和目标地址， 使能DMA中断
+参数：hdma_uart5_tx ,  huart->pTxBuffPtr ,   UART5->TDR,   huart->TxXferSize
+数据流：  huart->pTxBuffPtr --  UART5->TDR
+HAL_DMA_Start_IT(  *hdma, SrcAddress,   DstAddress, DataLength)
+
+      if(HAL_DMA_STATE_READY == hdma->State)
+        
+          /* Disable the peripheral */
+          __HAL_DMA_DISABLE(hdma);
+                     DMA1.Stream3->CR &=  ~DMA_SxCR_EN;    //CR.0=0
+
+          //设置dma的数据长度，非双缓冲，起始地址，目标地址，清除中断状态
+          DMA_SetConfig(hdma, SrcAddress, DstAddress, DataLength);
+
+          if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0 )  /* DMA1 or DMA2 instance */
+      
+              //使能中断
+             // MODIFY_REG( ( hdma->Instance)->CR, (DMA_IT_TC | DMA_IT_TE | DMA_IT_DME | DMA_IT_HT), (DMA_IT_TC | DMA_IT_TE | DMA_IT_DME));
+                             DMA1.Stream3->CR &= ~(DMA_IT_TC | DMA_IT_TE | DMA_IT_DME | DMA_IT_HT);      //关中断： 传送一半
+                             DMA1.Stream3->CR |=  DMA_IT_TC | DMA_IT_TE | DMA_IT_DME;                                     //开中断： 传送完成，传送错误，直接模式错误
+
+              if(hdma->XferHalfCpltCallback != NULL)
+                    DMA1.Stream3->CR  |= DMA_IT_HT;                //开中断： 传送一半      
+ 
+
+---
+
+设置dma的数据长度，非双缓冲，起始地址，目标地址，清除中断状态
+参数：hdma_uart5_tx ,  huart->pTxBuffPtr ,  &huart->Instance->TDR,   huart->TxXferSize
+数据流：  huart->pTxBuffPtr --  UART5->TDR
+DMA_SetConfig(  *hdma,  SrcAddress,   DstAddress,   DataLength)   //TX分支
+ 
+    *regs_dma    =  hdma->StreamBaseAddress;     //指向 LISR and LIFCR
+
+    if(IS_DMA_DMAMUX_ALL_INSTANCE(hdma->Instance) != 0U)   
+
+        hdma->DMAmuxChannelStatus->CFR = hdma->DMAmuxChannelStatusMask;   //或DMAMUX_CFR=Mask
+
+        if(hdma->DMAmuxRequestGen != 0U) 
+              hdma->DMAmuxRequestGenStatus->RGCFR = hdma->DMAmuxRequestGenStatusMask;     //或DMAMUX_CFR=Mask     
+ 
+    if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0U)    // DMA1 or DMA2 instance 
+    
+        //清中断状态标志
+        regs_dma->IFCR = 0x3FUL << (hdma->StreamIndex & 0x1FU);   //0x3f<<22  ， DMA_LIFCR.27-22=111111
+
+        DMA1_Stream3->CR &=  ~DMA_SxCR_DBM;     //DMA_SxCR.dbm=0， 非双缓冲模式
+        DMA1_Stream3->NDTR = DataLength;                 //设置本次传输的数据长度
+
+        if((hdma->Init.Direction) == DMA_MEMORY_TO_PERIPH)   //uart rx
+               ......(忽略)
+ 
+        else     //uart tx
+ 
+            DMA1_Stream3->PAR = SrcAddress;        // DMA_SxPAR = huart->pTxBuffPtr
+            DMA1_Stream3->M0AR = DstAddress;     // DMA_SxM0AR = UART5->TDR
+ 
+
+----------
+  
+ //dma中断入口函数
+ HAL_DMA_IRQHandler( *hdma)   //uart5的tx部分，tx是全发送中断
+ 
+        uint32_t tmpisr_dma, tmpisr_bdma;
+        uint32_t ccr_reg;
+        __IO uint32_t count = 0U;
+ 
+        *regs_dma  = hdma->StreamBaseAddress;    //指向 LISR and LIFCR 
+        tmpisr_dma        = regs_dma->ISR;    //DMA_LISR 
+
+        if(IS_DMA_STREAM_INSTANCE(DMA1_Stream3) != 0U)        // DMA1 or DMA2 instance      
+ 
+                /* Transfer Complete Interrupt management ***********************************/
+
+                //if ((tmpisr_dma & (DMA_FLAG_TCIF0_4 << (hdma->StreamIndex & 0x1FU))) != 0U)     //判断DMA_LISR.27，即TCIF3是否为1
+                     itemp=   tmpisr_dma & (0X20 <<22 ) ;
+                     if (    itemp != 0     )        //如果DMA_LISR.27=1，则继续下面               
+                                    
+                        if(__HAL_DMA_GET_IT_SOURCE(hdma, DMA_IT_TC) != 0 )
+                       
+                                /* Clear the transfer complete flag */
+                                regs_dma->IFCR = DMA_FLAG_TCIF0_4 << (22);
+
+                                if(   ((   DMA1_Stream3->CR) &  DMA_SxCR_DBM) != 0U   )       //如果DMA_SxCR.18=1 ，则是双缓冲，继续下面                                 
+                                       ......（忽略）                               
+
+                                else   //非双缓冲
+                                 
+                                        if(( DMA1_Stream3->CR & DMA_SxCR_CIRC) == 0U)   //如果DMA_SxCR.8=0 ，则不是圆形模式，继续下面  
+
+                                                (hdma->Instance)->CR&= ~(DMA_IT_TC);     //DMA_SxCR.4=0，关闭TC中断 （transfer complete） 
+                                                hdma->State = HAL_DMA_STATE_READY; 
+                                                __HAL_UNLOCK(hdma);
+                                         
+                                        if(hdma->XferCpltCallback != NULL)
+                                                hdma->XferCpltCallback(hdma);    //调用TC的中断服务程序
+                                        
+                                
+
+--------------
+
+
+//串口uart5的中断服务程序
+  UART_DMATransmitCplt( *hdma)
+ 
+        UART_HandleTypeDef *huart = (UART_HandleTypeDef *)(hdma->Parent);
+
+        if (hdma->Init.Mode != DMA_CIRCULAR)  // 非圆形模式, 则下面
+       
+                huart->TxXferCount = 0U;
+
+                ATOMIC_CLEAR_BIT(huart->Instance->CR3, USART_CR3_DMAT);    //USART_CR3.7=0, 关闭UART5的dma传送
+
+                ATOMIC_SET_BIT(huart->Instance->CR1, USART_CR1_TCIE);        //USART_CR1.6=1,使能TC中断 （应是uart中断，而不是dma中断）
+ 
+        else  //圆形模式
+                 HAL_UART_TxCpltCallback(huart);
+ 
+  
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 

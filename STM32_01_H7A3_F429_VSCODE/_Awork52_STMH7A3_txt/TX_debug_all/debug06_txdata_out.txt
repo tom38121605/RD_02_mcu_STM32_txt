@@ -1,0 +1,360 @@
+
+
+。mcu读取usb传入的数据
+。mcu把5a的数据发射出去 
+
+
+
+========================================mcu读取usb传入的数据====================================
+ 
+
+flow： （mcu读取usb传入的数据）
+
+        OTG_FS_IRQHandler --  HAL_PCD_IRQHandler --  HAL_PCD_SOFCallback  -- USBD_LL_SOF -- USBD_AUDIO_SOF 
+
+         USBD_AUDIO_SOF   -- haudio->aud_function.as_interfaces[i].SofReceived -- 中间过程02 
+          -- AUDIO_USB_Session_Sof_Received  -- AUDIO_SpeakerInit  --  (PlaybackSpeakerOutputNode.SpeakerGetReadCount )
+          -- AUDIO_SpeakerGetLastReadCount -- AUDIO_SpeakerUpdateBuffer -- audio_tx_task_fill_data -- audio_buffer_fill_data -- audio_tx_send_data  
+
+
+数据流：   AUDIO_SpeakerHandler->buf->data  -- AUDIO_SpeakerHandler->specific.data -- psAudioInfo->data_buffer->data  
+
+
+------------------------------------------------------------------------------------------
+ 
+
+//usb OTG 中断入口
+ OTG_FS_IRQHandler( )
+ 
+       HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS);
+
+---------
+
+
+参数：hpcd_USB_OTG_FS          
+HAL_PCD_IRQHandler( *hpcd)
+ 
+        USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;     //USB_OTG_FS 
+ 
+        //if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)     //USB_OTG_MODE_DEVICE=0
+             if ( USB_OTG_FS->GINTSTS.0== 0)    //如果是0即从模式
+               
+               // if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_SOF))
+                   if ( USB_OTG_FS->GINTSTS.3==1 )        /* Handle SOF Interrupt */              
+ 
+                        //HAL_PCD_SOFCallback(hpcd);                              //这里
+                       //    USBD_LL_SOF( hpcd_USB_OTG_FS->pData );
+                                 USBD_LL_SOF( hUsbDeviceFS );           
+ 
+----------
+
+参数：  hUsbDeviceFS 
+USBD_LL_SOF(  *pdev) 
+ 
+        if (pdev->dev_state == USBD_STATE_CONFIGURED)
+      
+                if (pdev->pClass->SOF != NULL)
+                
+                       //pdev->pClass->SOF(pdev);
+                              USBD_AUDIO_SOF(hUsbDeviceFS);   
+
+
+-----------------
+
+
+参数：  hUsbDeviceFS 
+USBD_AUDIO_SOF ( *pdev)
+ 
+    USBD_AUDIO_HandleTypeDef   *haudio;  
+ 
+    haudio =  pdev->pClassData;    //=haudio
+  
+     for(int i=0;  i<haudio->aud_function.as_interfaces_count;  i++)
+  
+          if(haudio->aud_function.as_interfaces[i].alternate!=0)
+
+                     //haudio->aud_function.as_interfaces[i].SofReceived(haudio->aud_function.as_interfaces[i].private_data);   //这里
+                             AUDIO_USB_Session_Sof_Received(USB_AudioPlabackSession );           
+  
+ 
+-------------------
+
+
+参数： USB_AudioPlabackSession  
+ AUDIO_USB_Session_Sof_Received( session_handle )
+ 
+         static uint16_t sof_counter = 0;
+ 
+         static uint32_t total_received_sub_samples = 0;
+         AUDIO_USBSession_t *session;
+         uint16_t read_samples_per_channel ;
+                
+        session = session_handle;  //USB_AudioPlabackSession 
+
+        if( session->session.state == AUDIO_SESSION_STARTED) 
+         
+              if(PlaybackSynchroFirstSofReceived)
+ 
+                               //read_samples_per_channel = PlaybackSpeakerOutputNode.SpeakerGetReadCount( &PlaybackSpeakerOutputNode);    //这里  
+                                         read_samples_per_channel = AUDIO_SpeakerGetLastReadCount( &PlaybackSpeakerOutputNode);   
+
+                                total_received_sub_samples += read_samples_per_channel;
+
+                                if(++sof_counter == 1000)                              
+ 
+                                        PlaybackSynchroEstimatedCodecFrequency =((total_received_sub_samples)>>1);
+                                        total_received_sub_samples = total_received_sub_samples % 2;
+ 
+                                        sof_counter =0;                              
+  
+             else       
+                         PlaybackSpeakerOutputNode.SpeakerStartReadCount（&PlaybackSpeakerOutputNode);  
+                         sof_counter = 0;
+ 
+                         total_received_sub_samples = 0;
+                         PlaybackSynchroFirstSofReceived = 1;               
+        
+        else        
+                PlaybackSynchroFirstSofReceived = 0;       
+
+
+--------
+
+
+参数： PlaybackSpeakerOutputNode （即AUDIO_SpeakerHandler）
+ AUDIO_SpeakerGetLastReadCount( node_handle )
+ 
+     AUDIO_SpeakerNode_t *speaker = node_handle;
+     int  read_bytes = AUDIO_SpeakerUpdateBuffer();
+
+     read_bytes = read_bytes / (speaker->node.audio_description->resolution) ; 
+     return read_bytes;
+          
+
+---------------
+
+
+数据流： AUDIO_SpeakerHandler->buf->data  -- AUDIO_SpeakerHandler->specific.data -- psAudioInfo->data_buffer->data
+AUDIO_SpeakerUpdateBuffer( )        //audio_tx_task_fill_data部分
+
+        if ((AUDIO_SpeakerHandler) && (AUDIO_SpeakerHandler->node.state != AUDIO_NODE_OFF))        
+               
+                if (AUDIO_SpeakerHandler->node.state == AUDIO_NODE_STARTED)               /* if speaker was started prepare next data */
+                
+                        if (AUDIO_SpeakerHandler->specific.cmd & SPEAKER_CMD_STOP)               
+                                       ......  (忽略)
+                       
+                        else                       
+
+                                //AUDIO_SpeakerHandler->node.session_handle->SessionCallback( AUDIO_PACKET_PLAYED, AUDIO_SpeakerHandler,  AUDIO_SpeakerHandler->node.session_handle );     
+                                //        USB_AudioPlabackSession->session->SessionCallback( AUDIO_PACKET_PLAYED, AUDIO_SpeakerHandler,  AUDIO_SpeakerHandler->node.session_handle );
+                                                 USB_AudioPlaybackSessionCallback( AUDIO_PACKET_PLAYED, AUDIO_SpeakerHandler,  AUDIO_SpeakerHandler->node.session_handle );    //待用
+
+
+                                AUDIO_SpeakerHandler->specific.data_size = AUDIO_SpeakerHandler->packet_length; 
+                                read_length = AUDIO_SpeakerHandler->packet_length;
+                                wr_distance = AUDIO_BUFFER_FILLED_SIZE(AUDIO_SpeakerHandler->buf);
+
+                                if (wr_distance < read_length)   
+                                      ......  (忽略)
+                                 
+                                else                                 
+
+                                      audio_tx_task_fill_data(AUDIO_SpeakerHandler->specific.data, *->specific.data_size)；  //这里  *->specific.data  --  #->data_buffer->data
+      
+                                       /* update read pointer */
+                                       AUDIO_SpeakerHandler->specific.data = *->buf->data + *->buf->rd_ptr;                    //这里 *->buf->data -- *->specific.data
+                                       AUDIO_SpeakerHandler->buf->rd_ptr += read_length;
+
+                                       if (AUDIO_SpeakerHandler->buf->rd_ptr >= AUDIO_SpeakerHandler->buf->size)                                        
+                                              AUDIO_SpeakerHandler->buf->rd_ptr = AUDIO_SpeakerHandler->buf->rd_ptr - AUDIO_SpeakerHandler->buf->size;
+                                                           
+
+               
+  ------------
+
+数据流： AUDIO_SpeakerHandler->specific.data    --    psAudioInfo->data_buffer->data
+ audio_tx_task_fill_data(  *data_buffer,   data_size)       //参数：AUDIO_SpeakerHandler->specific.data
+ 
+        if(audioTxTask.Handle)                 
+        
+                audio_buffer_fill_data(data_buffer, data_size);              // AUDIO_SpeakerHandler->specific.data -- psAudioInfo->data_buffer->data    //这里
+                
+                package_size = getAudioInfoPtr()->package_size;
+
+                if (0 == audio_buffer_read_check(package_size))       // 检查大小满足条件   
+                 
+                         audio_tx_send_data(package_size);    //这里
+
+
+--------
+
+数据流： AUDIO_SpeakerHandler->specific.data -- psAudioInfo->data_buffer->data
+ audio_buffer_fill_data( *data_buffer,  data_size)       //参数：AUDIO_SpeakerHandler->specific.data
+ 
+    if ( 0 == audio_buffer_write_check(data_size) )  //YES
+    
+        if (psAudioInfo->data_buffer->wr_ptr + data_size > psAudioInfo->data_buffer->size)
+         
+             uint16_t tail_size = psAudioInfo->data_buffer->size - psAudioInfo->data_buffer->wr_ptr;
+             uint16_t front_size = data_size - tail_size;
+             memcpy(psAudioInfo->data_buffer->data + psAudioInfo->data_buffer->wr_ptr,  data_buffer,  tail_size);      // 数据流：*->specific.data -- psAudioInfo->data_buffer->data
+             memcpy(psAudioInfo->data_buffer->data, data_buffer+tail_size, front_size);
+         
+        else  //YES
+         
+             memcpy(psAudioInfo->data_buffer->data + psAudioInfo->data_buffer->wr_ptr, data_buffer, data_size);      //数据流： *->specific.data -- psAudioInfo->data_buffer->data
+        
+        psAudioInfo->data_buffer->wr_ptr = (psAudioInfo->data_buffer->wr_ptr + data_size) % psAudioInfo->data_buffer->size;
+ 
+
+          
+
+=============================================mcu把5a的数据发射出去===================================================
+ 
+
+flow1： （mcu读取usb传入的数据）
+
+          AUDIO_USB_Session_Sof_Received -- AUDIO_SpeakerInit  --  (PlaybackSpeakerOutputNode.SpeakerGetReadCount )
+         -- AUDIO_SpeakerGetLastReadCount -- AUDIO_SpeakerUpdateBuffer -- audio_tx_task_fill_data -- audio_buffer_fill_data -- audio_tx_send_data  
+
+数据流：   AUDIO_SpeakerHandler->buf->data  -- AUDIO_SpeakerHandler->specific.data -- psAudioInfo->data_buffer->data  
+
+ 
+flow2： （mcu把5a的数据发射出去）
+
+           audio_tx_send_data -- audio_buffer_fetch_data -- audio_add_uwb_medium_access -- audio_tx_task_notify -- (AUDIO_TX_FRAME_NTF) 
+           -- AudioTxTask ---audio_tx_process_tx_frame_start
+ 
+
+数据流：   psAudioInfo->data_buffer->data --  tx_buffer --  access.context.data -- psAudioInfo->access_buffer->context.data  -- dw3000发射寄存器
+
+
+--------------------------------------------------
+
+
+数据流：psAudioInfo->data_buffer->data  --  tx_buffer  --  access.context.data
+audio_tx_send_data( data_size)
+ 
+        if (tx_done == 1)
+     
+                tx_done = 0;
+                audio_buffer_fetch_data(  tx_buffer + FRAME_DATA_INDEX, data_size)；     //psAudioInfo->data_buffer->data  --  tx_buffer
+             
+                        uwb_medium_access_t access;  
+                        access.type = UWB_ACCESS_TX_FRAME_START;    //  消息类型： AUDIO_TX_FRAME_NTF
+                        access.context.datalength = data_size;  
+                        access.context.data = tx_buffer;                              //  tx_buffer  --  access.context.data
+
+                        audio_add_uwb_medium_access(access);
+                        audio_tx_task_notify(AUDIO_TX_FRAME_NTF);                // 传递消息： AUDIO_TX_FRAME_NTF
+    
+ 
+---------
+
+数据流： psAudioInfo->data_buffer->data  --  tx_buffer 
+ audio_buffer_fetch_data(  *data_buffer,   data_size)  参数：  tx_buffer , BB
+ 
+        if (0 == audio_buffer_read_check(data_size))
+    
+                if (psAudioInfo->data_buffer->rd_ptr + data_size > psAudioInfo->data_buffer->size)
+                
+                        uint16_t tail_size = psAudioInfo->data_buffer->size - psAudioInfo->data_buffer->rd_ptr;
+                        uint16_t front_size = data_size - tail_size;
+                        memcpy(data_buffer, psAudioInfo->data_buffer->data + psAudioInfo->data_buffer->rd_ptr, tail_size);
+                        memcpy(data_buffer+tail_size, psAudioInfo->data_buffer->data, front_size);
+                 
+                else
+                
+                        memcpy(data_buffer, psAudioInfo->data_buffer->data + psAudioInfo->data_buffer->rd_ptr, data_size);
+                 
+                psAudioInfo->data_buffer->rd_ptr = (psAudioInfo->data_buffer->rd_ptr + data_size) % psAudioInfo->data_buffer->size;
+            
+
+-------------
+
+数据流： access.context.data( 即 tx_buffer) -- psAudioInfo->access_buffer  ->context.data
+ audio_add_uwb_medium_access(  access)
+ 
+        current_last = psAudioInfo->last_access_index;
+        current_next = psAudioInfo->next_access_index;
+        new_last = (current_last + 1 + UWB_MEDIUM_ACCESS_BUFFER_SIZE) % UWB_MEDIUM_ACCESS_BUFFER_SIZE;
+
+        if (new_last != current_next)
+      
+             uwb_medium_access_t  * new_access = &(psAudioInfo->access_buffer[current_last]);
+
+                new_access->type = access.type;
+                new_access->context.status = access.context.status;
+                new_access->context.status_hi = access.context.status_hi;
+                new_access->context.rx_flags = access.context.rx_flags;
+                new_access->context.data = access.context.data;
+                new_access->context.datalength = access.context.datalength;
+                new_access->context.dss_stat = access.context.dss_stat;
+
+                psAudioInfo->last_access_index = new_last;
+
+ 
+---------
+ 
+AudioTxTask( * arg)    //这次全局参数：UWB_ACCESS_TX_FRAME_START:
+ 
+        audio_info_t         *pAudioTxInfo;
+
+        pAudioTxInfo = getAudioInfoPtr();    //=psAudioInfo
+
+        audioTxTask.Exit = 0; 
+
+        while(audioTxTask.Exit == 0)
+      
+                osEvent evt = osSignalWait(audioTxTask.SignalMask, osWaitForever);
+ 
+                if (evt.value.signals & AUDIO_TX_FRAME_NTF)    //传入AUDIO_TX_FRAME_NTF
+                 
+                        uwb_medium_access_t access;
+
+                        //audio_get_uwb_medium_access(&access);    
+                                   access = psAudioInfo->access_buffer；
+                         
+                        switch (access.type)  
+                                
+                                case UWB_ACCESS_TX_FRAME_START:
+                                        audio_tx_process_tx_frame_start(access);    //这里, access.context.data -- dw3000发射寄存器
+                                        break;
+                                case UWB_ACCESS_TX_FRAME_SENT:
+                                        audio_tx_process_tx_frame_sent(access);
+                                        break;
+                                case UWB_ACCESS_RX_FRAME:
+                                        audio_tx_process_rx_frame(access);
+                                        break;
+                                case UWB_ACCESS_RX_ERROR:
+                                        audio_tx_process_rx_error(access);
+                                        break;
+                                case UWB_ACCESS_RX_TIMEOUT:
+                                        audio_tx_process_rx_timeout(access);
+                                        break;
+                            
+        audioTxTask.Exit = 2;
+        while(audioTxTask.Exit == 2)            osDelay(1);
+
+
+---------
+
+
+数据流：  access.context.data -- dw3000发射寄存器
+audio_tx_process_tx_frame_start(  access)
+ 
+    data_buffer = access.context.data;
+    data_size = access.context.datalength;
+
+    data_buffer[FRAME_SN_IDX] = tx_msg_sn;   //FRAME_SN_IDX=2
+
+ 
+    dwt_writetxdata(data_size + FRAME_DATA_INDEX, data_buffer, 0);       /* Zero offset in TX buffer. */
+    dwt_writetxfctrl(data_size + FRAME_DATA_INDEX + FCS_LEN, 0, 0);       /* Zero offset in TX buffer, no ranging. */
+ 
+    dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED);
+ 
+
+
+

@@ -1,0 +1,37 @@
+
+
+
+
+usb_data_e    usb_uart_rx(void)
+ 
+        usb_data_e                ret=NO_DATA;
+        uint16_t                    uartLen, headUart, tailUart;   
+        uint16_t                 usbLen, headUsb, tailUsb;  
+ 
+        /* USART control prevails over USB control if both at the same time */  
+     
+        headUart = uartRx->head;  
+        headUsb = usbRx->head;     
+
+        tailUart = uartRx->tail;
+        uartLen = CIRC_CNT(headUart, tailUart, sizeof(uartRx->buf));
+ 
+        tailUsb = usbRx->tail;
+        usbLen    = CIRC_CNT(headUsb, tailUsb, sizeof(usbRx->buf));  
+
+        if ((uartLen > 0) && get_uartEn())
+        
+                ret = AppGet()->on_rx(uartRx->buf, uartLen,&tailUart,sizeof(uartRx->buf) - 1);
+ 
+                uartRx->tail = tailUart; 
+ 
+        else if((usbLen > 0) && (UsbGetState() == USB_CONFIGURED))
+        
+                ret = AppGet()->on_rx(usbRx->buf, usbLen,&tailUsb,sizeof(usbRx->buf) - 1);
+                USB_UART_ENTER_CRITICAL();
+                usbRx->tail = tailUsb;
+                USB_UART_EXIT_CRITICAL();
+         
+ 
+ 
+ 

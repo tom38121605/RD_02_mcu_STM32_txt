@@ -1,0 +1,926 @@
+
+C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe
+${workspace_loc:/ommo_com/Release}
+-c port=swd -w ommo_com.hex -s 0x8000000 #L
+
+------------------
+
+
+AUDIO_SpeakerHandler = PlaybackSpeakerOutputNode
+
+AUDIO_SpeakerHandler->node.session_handle    =  USB_AudioPlabackSession->session 
+USB_AudioPlabackSession->session.node_list      =  PlaybackUSBInputNode;
+
+
+hpcd_USB_OTG_FS.Instance    =  USB_OTG_FS;           //USB_OTG_FS_PERIPH_BASE  寄存器地址
+hpcd_USB_OTG_FS.pData        =   hUsbDeviceFS
+
+hUsbDeviceFS->pData             =   &hpcd_USB_OTG_FS;
+
+hUsbDeviceFS->pUserData    =  audio_class_interface;
+hUsbDeviceFS->pClass           =  USBD_AUDIO_CLASS = USBD_AUDIO
+hUsbDeviceFS->pClassData   =  haudio                                                              //（haudio看做是malloc动态分配的全局变量） 
+hUsbDeviceFS->pConfDesc   = USBD_AUDIO_ConfigDescriptor  
+hUsbDeviceFS->pDesc            =  FS_Desc 
+
+hUsbDeviceFS->request         =  hpcd_USB_OTG_FS->Setup      
+
+haudio->aud_function->as_interfaces[0]->private_data = USB_AudioPlabackSession;    
+
+
+大as_interfaces = haudio->aud_function->as_interfaces[i]
+大as_interfaces->private_data = USB_AudioPlabackSession 
+
+
+大data_ep = haudio->ep_out[1]->ep_description.data_ep
+大data_ep = haudio->aud_function.as_interfaces[1]->data_ep     //见中间过程05
+大data_ep->private_data = PlaybackUSBInputNode                                  //见下面
+
+大epout_xfer_buff  =  hpcd_USB_OTG_FS->OUT_ep[ i ]->xfer_buff    
+大epout_xfer_buff  =  USBx_DFIFO(0);  
+
+大epin->xfer_buff = hpcd_USB_OTG_FS->IN_ep[0]->xfer_buff
+
+ 
+----------------------
+ 
+ AUDIO_SpeakerNode_t                 *AUDIO_SpeakerHandler = 0;
+ AUDIO_SpeakerNode_t                 PlaybackSpeakerOutputNode;
+
+AUDIO_USBSession_t                      USB_AudioPlabackSession;
+
+USBD_AUDIO_HandleTypeDef              *haudio;
+ 
+PCD_HandleTypeDef                                hpcd_USB_OTG_FS;
+
+USBD_HandleTypeDef                              hUsbDeviceFS;
+
+
+
+=================================函数替换=======================================
+
+
+------USBD_AUDIO------ USBD_AUDIO_CLASS------
+
+  pdev->pClass->Init                       --        USBD_AUDIO_Init
+  pdev->pClass->DeInit                   --        USBD_AUDIO_DeInit
+  pdev->pClass->Setup                    --       USBD_AUDIO_Setup  
+  pdev->pClass->EP0_TxSent           --       USBD_AUDIO_EP0_TxReady
+  pdev->pClass->EP0_RxReady       --        USBD_AUDIO_EP0_RxReady
+  pdev->pClass->DataIn                   --        USBD_AUDIO_DataIn
+  pdev->pClass->DataOut                --        USBD_AUDIO_DataOut
+  pdev->pClass->SOF                        --        USBD_AUDIO_SOF
+
+  pdev->pClass->IsoINIncomplete                                   --        USBD_AUDIO_IsoINIncomplete
+  pdev->pClass->IsoOUTIncomplete                                --        USBD_AUDIO_IsoOutIncomplete     
+  pdev->pClass->GetHSConfigDescriptor                         --       USBD_AUDIO_GetCfgDesc  
+  pdev->pClass->GetFSConfigDescriptor                         --         USBD_AUDIO_GetCfgDesc
+  pdev->pClass->GetOtherSpeedConfigDescriptor         --        USBD_AUDIO_GetCfgDesc
+  pdev->pClass->GetDeviceQualifierDescriptor               --        USBD_AUDIO_GetDeviceQualifierDesc
+
+
+------Usb--------
+
+  Usb.init          --   MX_USB_DEVICE_Init
+  Usb.deinit      --   MX_USB_DEVICE_DeInit 
+  Usb.deinit      --   MX_USB_DEVICE_DeInit,
+  Usb.update    --   InterfaceUsbUpdate
+
+
+------audio_class_interface---
+
+ 
+
+  aifc->Init                           --   AUDIO_USB_Init 
+  aifc->DeInit                      --    AUDIO_USB_DeInit  
+  aifc->GetConfigDesc       --   AUDIO_USB_GetConfigDesc
+  aifc->GetState                  --    AUDIO_USB_GetState
+
+
+------hUsbDeviceFS------FS_Desc---------
+
+  pdev->pDesc->GetDeviceDescriptor                     --   USBD_FS_DeviceDescriptor                     
+  pdev->pDesc->GetLangIDStrDescriptor                --   USBD_FS_LangIDStrDescriptor                   
+  pdev->pDesc->GetManufacturerStrDescriptor     --   USBD_FS_ManufacturerStrDescriptor    
+  pdev->pDesc->GetProductStrDescriptor               --   USBD_FS_ProductStrDescriptor                 
+  pdev->pDesc->GetSerialStrDescriptor                    --   USBD_FS_SerialStrDescriptor                 
+  pdev->pDesc->GetConfigurationStrDescriptor      --   USBD_FS_ConfigStrDescriptor               
+  pdev->pDesc->GetInterfaceStrDescriptor               --   USBD_FS_InterfaceStrDescriptor            
+  
+
+------------default_app------helpers_app_audio_tx----------
+
+AppGet()->app_name          --   "AUDIO_TX"
+AppGet()->app_mode          --   mAPP  //2
+queue_message->helper      --   audio_tx_helper()
+AppGet()->terminate            --    audio_tx_terminate()
+AppGet()->on_rx                   --   waitForCommand, command_parser()
+AppGet()->sub_command   --    &known_commands_audio_tx
+
+
+
+-----------------------大data_ep------USB_AudioStreamingInputInit----------------
+
+  data_ep->DataReceived                  --   USB_AudioStreamingInputDataReceived;    //这里
+  data_ep->GetBuffer                         --   USB_AudioStreamingInputGetBuffer;
+  data_ep->GetMaxPacketLength    --   USB_AudioStreamingInputOutputGetMaxPacketLength;
+  data_ep->GetState                           --   USB_AudioStreamingInputOutputGetState;
+
+
+
+--------------------USB_AudioPlabackSession-----AUDIO_PlaybackSessionInit---------------------------
+
+
+play_session->SessionDeInit = USB_AudioPlaybackSessionDeInit;
+play_session->session.SessionCallback = USB_AudioPlaybackSessionCallback;
+
+
+
+-------------------------AUDIO_SpeakerHandler---------------------------
+
+AUDIO_SpeakerHandler->node.session_handle->SessionCallback    =  USB_AudioPlaybackSessionCallback 
+
+
+--------------------------PlaybackSpeakerOutputNode--------------------AUDIO_SpeakerInit------------------------
+
+        speaker->SpeakerDeInit                    = AUDIO_SpeakerDeInit;
+        speaker->SpeakerStart                     = AUDIO_SpeakerStart;
+        speaker->SpeakerStop                        = AUDIO_SpeakerStop;
+        speaker->SpeakerChangeFrequency = AUDIO_SpeakerChangeFrequency;
+        speaker->SpeakerMute                        = AUDIO_SpeakerMute;
+        speaker->SpeakerSetVolume             = AUDIO_SpeakerSetVolume;
+        speaker->SpeakerStartReadCount    = AUDIO_SpeakerStartReadCount;
+        speaker->SpeakerGetReadCount        = AUDIO_SpeakerGetLastReadCount;     //这里
+
+
+
+===================usb引脚参数1/1=======================
+
+
+ MX_USB_DEVICE_Init(  (  *ptr,   len) )
+
+        GPIO_InitTypeDef    GPIO_InitStruct;
+
+        /*Configure GPIO pin : USB_PowerSwitchOn_Pin */
+        GPIO_InitStruct.Pin     = USB_PowerSwitchOn_Pin;
+        GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+        GPIO_InitStruct.Pull    = GPIO_NOPULL;
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+        HAL_GPIO_Init(USB_PowerSwitchOn_GPIO_Port, &GPIO_InitStruct);
+
+        /*Configure GPIO pin : USB_OverCurrent_Pin */
+        GPIO_InitStruct.Pin     = USB_OverCurrent_Pin;
+        GPIO_InitStruct.Mode    = GPIO_MODE_INPUT;
+        GPIO_InitStruct.Pull    = GPIO_NOPULL;
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+        HAL_GPIO_Init(USB_OverCurrent_GPIO_Port, &GPIO_InitStruct);
+
+        /*Configure GPIO pin Output Level */
+        HAL_GPIO_WritePin(USB_PowerSwitchOn_GPIO_Port, USB_PowerSwitchOn_Pin, GPIO_PIN_RESET);
+
+
+
+===================usb引寄存器地址参数1/1=======================
+
+#define USB_OTG_FS          ((USB_OTG_GlobalTypeDef *) USB_OTG_FS_PERIPH_BASE)         //usb寄存器地址
+#define USB_OTG_HS          ((USB_OTG_GlobalTypeDef *) USB_OTG_HS_PERIPH_BASE)       //usb寄存器地址
+
+#define DEVICE_FS 		0
+#define DEVICE_HS 		1
+
+
+#define USBx_PCGCCTL    USBx_BASE + USB_OTG_PCGCCTL_BASE      //0xE00UL
+#define USBx_DEVICE        USBx_BASE + USB_OTG_DEVICE_BASE         // 0x800UL
+
+
+typedef struct  //USB的寄存器列表
+{
+  __IO uint32_t GOTGCTL;              /*!< USB_OTG Control and Status Register          000h */
+  __IO uint32_t GOTGINT;              /*!< USB_OTG Interrupt Register                   004h */
+  __IO uint32_t GAHBCFG;              /*!< Core AHB Configuration Register              008h */
+  __IO uint32_t GUSBCFG;              /*!< Core USB Configuration Register              00Ch */
+  __IO uint32_t GRSTCTL;              /*!< Core Reset Register                          010h */
+  __IO uint32_t GINTSTS;              /*!< Core Interrupt Register                      014h */
+  __IO uint32_t GINTMSK;              /*!< Core Interrupt Mask Register                 018h */
+  __IO uint32_t GRXSTSR;              /*!< Receive Sts Q Read Register                  01Ch */
+  __IO uint32_t GRXSTSP;              /*!< Receive Sts Q Read & POP Register            020h */
+  __IO uint32_t GRXFSIZ;              /*!< Receive FIFO Size Register                   024h */
+  __IO uint32_t DIEPTXF0_HNPTXFSIZ;   /*!< EP0 / Non Periodic Tx FIFO Size Register     028h */
+  __IO uint32_t HNPTXSTS;             /*!< Non Periodic Tx FIFO/Queue Sts reg           02Ch */
+  uint32_t Reserved30[2];             /*!< Reserved                                     030h */
+  __IO uint32_t GCCFG;                /*!< General Purpose IO Register                  038h */
+  __IO uint32_t CID;                  /*!< User ID Register                             03Ch */
+  uint32_t  Reserved40[48];           /*!< Reserved                                0x40-0xFF */
+  __IO uint32_t HPTXFSIZ;             /*!< Host Periodic Tx FIFO Size Reg               100h */
+  __IO uint32_t DIEPTXF[0x0F];        /*!< dev Periodic Transmit FIFO                        */
+} USB_OTG_GlobalTypeDef;
+
+
+
+
+======================== FS_Desc---usb描述符汇总  =====参数1/1=========================
+
+
+USBD_DescriptorsTypeDef   FS_Desc =
+{
+  USBD_FS_DeviceDescriptor,
+  USBD_FS_LangIDStrDescriptor, 
+  USBD_FS_ManufacturerStrDescriptor,
+  USBD_FS_ProductStrDescriptor,
+  USBD_FS_SerialStrDescriptor,
+  USBD_FS_ConfigStrDescriptor,
+  USBD_FS_InterfaceStrDescriptor,
+};
+
+typedef struct
+{
+  uint8_t *(*GetDeviceDescriptor)                     (USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t *(*GetLangIDStrDescriptor)                (USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t *(*GetManufacturerStrDescriptor)    (USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t *(*GetProductStrDescriptor)               (USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t *(*GetSerialStrDescriptor)                   (USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t *(*GetConfigurationStrDescriptor)    (USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t *(*GetInterfaceStrDescriptor)              (USBD_SpeedTypeDef speed, uint16_t *length);
+ 
+} USBD_DescriptorsTypeDef;
+
+
+
+====================设备描述符====USBD_FS_DeviceDesc  =====参数1/1=======================
+
+ USBD_FS_DeviceDesc[18]  =
+  {
+    0x12,                                         /*bLength */
+    USB_DESC_TYPE_DEVICE,       /*bDescriptorType*/      //01
+ 
+    0x00,                                        /* bcdUSB */ 
+    0x02,
+ 
+    0x00,                                   /*bDeviceClass*/
+    0x00,                                   /*bDeviceSubClass*/
+ 
+    0x00,                                    /*bDeviceProtocol*/
+    USB_MAX_EP0_SIZE,          /*bMaxPacketSize*/        //64
+    LOBYTE(USBD_VID),           /*idVendor*/                    //57H
+    HIBYTE(USBD_VID),           /*idVendor*/                   //04H
+    LOBYTE(USBD_PID),           /*idVendor*/                   //04H
+    HIBYTE(USBD_PID),           /*idVendor*/                   //83H
+    0x00,                                    /*bcdDevice rel. 2.00*/
+    0x02,
+    USBD_IDX_MFC_STR,                                /*Index of manufacturer  string*/      //01
+    USBD_IDX_PRODUCT_STR,                       /*Index of product string*/                 //02
+    USBD_IDX_SERIAL_STR,                             /*Index of serial number string*/       //03
+    USBD_MAX_NUM_CONFIGURATION      /*bNumConfigurations*/                      //01
+           
+  } ; 
+
+
+====================配置描述符====USBD_AUDIO_ConfigDescriptor=====参数1/1=======================
+
+USBD_AUDIO_ConfigDescriptor[CONFIG_DESCRIPTOR_SIZE ]  =
+ 
+        /* Configuration 1 */
+        0x09,                                         
+        USB_DESC_TYPE_CONFIGURATION,                                    // 02，配置描述符
+        LOBYTE(CONFIG_DESCRIPTOR_SIZE),                                  // 或 0x77
+        HIBYTE(CONFIG_DESCRIPTOR_SIZE),                                   // 或 0x00  
+        0x01 + CONFIG_DESCRIPTOR_AS_INTERFACES_COUNT,    //02，接口数量
+
+        0x01,                                         //配置值为1，配置值从1开始编号
+        0x00,                                         //无字符串描述符
+        0xC0,                                         //自供电，不支持远程唤醒等
+        0x32,                                         // 100 mA
+  
+        
+        /* Standard AC Interface Descriptor: Audio control interface*/
+        USBD_AUDIO_STANDARD_INTERFACE_DESC_SIZE,                   //09
+        USB_DESC_TYPE_INTERFACE,                                                         //04, 接口描述符
+        0x00,                                               //接口号为0，接口从0开始编号
+        0x00,                                              //可选设置0
+        0x00,                                              //端点数量
+        USBD_AUDIO_CLASS_CODE,       //01，接口类型：Audio
+        USBD_AUDIO_INTERFACE_SUBCLASS_AUDIOCONTROL,   //01, 接口子类型 AUDIO CONTROL
+        USBD_AUDIO_INTERFACE_PROTOCOL_UNDEFINED,         //00, 无协议
+        0x00,                                                                                         //无字符串描述符
+ 
+        
+        /* Class-Specific AC Interface Header Descriptor */
+        
+        USBD_AUDIO_AC_CS_INTERFACE_DESC_SIZE(CONFIG_DESCRIPTOR_AS_INTERFACES_COUNT),     //09
+        USBD_AUDIO_DESC_TYPE_CS_INTERFACE,             //24,  音频接口描述
+        USBD_AUDIO_CS_AC_SUBTYPE_HEADER,              // 01,  子类型 Header
+        LOBYTE(USBD_AUDIO_ADC_BCD),                         //00 ,  0x0100, Audio Classs 规范1.0
+        HIBYTE(USBD_AUDIO_ADC_BCD),                           //01，  0x0100, Audio Classs 规范1.0
+        LOBYTE(CONFIG_DESCRIPTOR_AC_TOTAL_SIZE),   //或0x28，0x0028，  Audio Classs 描述符总大小
+        HIBYTE(CONFIG_DESCRIPTOR_AC_TOTAL_SIZE),     //或0x00，0x0028，  Audio Classs 描述符总大小
+        CONFIG_DESCRIPTOR_AS_INTERFACES_COUNT,      //01, streaming接口数 ?
+       
+        USBD_AUDIO_CONFIG_PLAY_SA_INTERFACE,           //01, AudioStreaming接口1属于这个控制接口 ?
+       
+   
+        /* USB OUT Terminal for play session */
+        /* Input Terminal Descriptor */
+        USBD_AUDIO_INPUT_TERMINAL_DESC_SIZE,              //0c
+        USBD_AUDIO_DESC_TYPE_CS_INTERFACE,                     //24,  音频接口描述
+        USBD_AUDIO_CS_AC_SUBTYPE_INPUT_TERMINAL,       //02, 输入终端
+        USB_AUDIO_CONFIG_PLAY_TERMINAL_INPUT_ID,       //0x12, 终端ID ?
+        LOBYTE(USBD_AUDIO_TERMINAL_IO_USB_STREAMING),       //0X0101, 类型USB STREAMING
+        HIBYTE(USBD_AUDIO_TERMINAL_IO_USB_STREAMING),
+        0x00,                                                                                               //对应USB streaming 的input  ?
+        USB_AUDIO_CONFIG_PLAY_CHANNEL_COUNT,         //02, 2个通道
+        LOBYTE(USB_AUDIO_CONFIG_PLAY_CHANNEL_MAP),   //0x0003, 左右声道 
+        HIBYTE(USB_AUDIO_CONFIG_PLAY_CHANNEL_MAP),
+        0x00,                                        //通道无字符串描述符 ？
+        0x00,                                        //终端无字符串描述符 ？
+      
+        /* USB Play control feature */
+        /* Feature Unit Descriptor*/
+        USBD_AUDIO_FEATURE_UNIT_DESC_SIZE(2,1),         //0a
+        USBD_AUDIO_DESC_TYPE_CS_INTERFACE,                 //24,  音频接口描述
+        USBD_AUDIO_CS_AC_SUBTYPE_FEATURE_UNIT,        //06,子类型，Feature Unit 
+        USB_AUDIO_CONFIG_PLAY_UNIT_FEATURE_ID,         //16, UnitID ?
+        USB_AUDIO_CONFIG_PLAY_TERMINAL_INPUT_ID,     //12, SourceID ?
+        0x01,                                                                                  // 1 byte pei control
+
+        /* @TODO add volume  controle on L/R channel */
+        USBD_AUDIO_CONTROL_FEATURE_UNIT_MUTE|USBD_AUDIO_CONTROL_FEATURE_UNIT_VOLUME,    //bmaControls(0), =03, 设置音量，mute，增益，延时等
+        0,                                            //bmaControls(1), 设置音量，mute，增益，延时等
+        0,                                            // bmaControls(2),设置音量，mute，增益，延时等
+        0x00,                                      // iTerminal  无字符串描述符 ?
+ 
+        
+        /*USB Play : Speaker Terminal */
+        /* Output Terminal Descriptor */
+        USBD_AUDIO_OUTPUT_TERMINAL_DESC_SIZE,              //09
+        USBD_AUDIO_DESC_TYPE_CS_INTERFACE,                       //24,  音频接口描述
+        USBD_AUDIO_CS_AC_SUBTYPE_OUTPUT_TERMINAL,      //03, 子类型，OUTPUT TERMINAL
+        USB_AUDIO_CONFIG_PLAY_TERMINAL_OUTPUT_ID,      //0x14， TERMINAL ID
+        LOBYTE(USBD_AUDIO_TERMINAL_O_SPEAKER),              //0x0301， speak
+        HIBYTE(USBD_AUDIO_TERMINAL_O_SPEAKER),
+        0x00,                                                                                   //待理解
+        USB_AUDIO_CONFIG_PLAY_UNIT_FEATURE_ID,      //0x16
+        0x00,                                                                                 // iTerminal  无字符串描述符 ?
+ 
+    
+ 
+        /* USB play Standard AS Interface Descriptor - Audio Streaming Zero Bandwith */
+        /* Standard AS Interface Descriptor */
+        USBD_AUDIO_STANDARD_INTERFACE_DESC_SIZE,           // 09
+        USB_DESC_TYPE_INTERFACE,                                                 // 04, 接口描述符
+        USBD_AUDIO_CONFIG_PLAY_SA_INTERFACE,                    //01，接口编号
+        0x00,                                                                                          //可选配置0
+        0x00,                                                                                         //端点数0
+        USBD_AUDIO_CLASS_CODE,                                                        //01, 接口类型，AUDIO 
+        USBD_AUDIO_INTERFACE_SUBCLASS_AUDIOSTREAMING,      //02  ，子类型，AUDIO STREAMING
+        USBD_AUDIO_INTERFACE_PROTOCOL_UNDEFINED,                 //00,    ，无协议
+        0x00,                                                                                              //interface无字符串描述符
+ 
+        
+        /* USB play Standard AS Interface Descriptors - Audio streaming operational */
+        /* Standard AS Interface Descriptor */
+        USBD_AUDIO_STANDARD_INTERFACE_DESC_SIZE,            //09
+        USB_DESC_TYPE_INTERFACE,                                                 //04, 接口描述符
+        USBD_AUDIO_CONFIG_PLAY_SA_INTERFACE,                     //01，接口编号01 （第二个接口）
+        0x01,                                                                                          //可选配置01  （第二哥配置）       
+        0x02,                                                                                                    //端点数
+       
+        USBD_AUDIO_CLASS_CODE,                                                                 //01, 接口类型，AUDIO 
+        USBD_AUDIO_INTERFACE_SUBCLASS_AUDIOSTREAMING,               //02  ，子类型，AUDIO STREAMING
+        USBD_AUDIO_INTERFACE_PROTOCOL_UNDEFINED,                            //00,    ，无协议
+        0x00,                                                                                                            //interface无字符串描述符
+ 
+        
+        /*Class-Specific AS Interface Descriptor */
+        USBD_AUDIO_AS_CS_INTERFACE_DESC_SIZE,             //07
+        USBD_AUDIO_DESC_TYPE_CS_INTERFACE,                   //24,  音频接口描述
+        USBD_AUDIO_CS_SUBTYPE_AS_GENERAL,                   //01, 子类型 GENERAL ？
+        USB_AUDIO_CONFIG_PLAY_TERMINAL_INPUT_ID,     //0x12  //?
+        0x01,                                                                                   //接口延迟
+        LOBYTE(USBD_AUDIO_FORMAT_TYPE_PCM),               //0001, PCM格式
+        HIBYTE(USBD_AUDIO_FORMAT_TYPE_PCM),
+ 
+
+          /*  Audio Type I Format descriptor */
+        USBD_USBD_AUDIO_FORMAT_TYPE_I_DESC_SIZE(USB_AUDIO_CONFIG_PLAY_FREQ_COUNT),  //0b ?
+        USBD_AUDIO_DESC_TYPE_CS_INTERFACE,            //24, 接口类型，audio interface
+        USBD_AUDIO_CS_SUBTYPE_AS_FORMAT_TYPE,       //02, 子类型，format
+        USBD_AUDIO_FORMAT_TYPE_I,                                   //01，？
+        USB_AUDIO_CONFIG_PLAY_CHANNEL_COUNT,       //2, 2通道
+        USB_AUDIO_CONFIG_PLAY_RES_BYTE,                    //03
+        USB_AUDIO_CONFIG_PLAY_RES_BIT,                        //0x18  (24bit)
+        USB_AUDIO_CONFIG_PLAY_FREQ_COUNT,            //或1， ？
+       
+        AUDIO_SAMPLE_FREQ(USB_AUDIO_CONFIG_PLAY_DEF_FREQ),           //0x17700  (96kHz)
+       
+         
+        /* USB Play data ep  */
+        /* Standard AS Isochronous Audio Data Endpoint Descriptor*/
+        USBD_AUDIO_STANDARD_ENDPOINT_DESC_SIZE,         //9
+        USB_DESC_TYPE_ENDPOINT,                                              //5， 类型，端点描述符
+        USBD_AUDIO_CONFIG_PLAY_EP_OUT,                              //1 , 端口1，输出
+        USBD_EP_TYPE_ISOC|USBD_EP_ATTR_ISOC_ASYNC,       //05 ?
+       
+        LOBYTE(USBD_AUDIO_CONFIG_PLAY_MAX_PACKET_SIZE),  // 0x0246 ?
+        HIBYTE(USBD_AUDIO_CONFIG_PLAY_MAX_PACKET_SIZE),
+        0x01,                                                                                                   //Interval  1ms
+        0x00,                                                                                                    //00 ?
+       
+        USB_AUDIO_CONFIG_PLAY_EP_SYNC,          //0x81，同步地址端口1，输入（）
+       
+ 
+        /* Class-Specific AS Isochronous Audio Data Endpoint Descriptor*/
+        USBD_AUDIO_SPECIFIC_DATA_ENDPOINT_DESC_SIZE,          // 07 
+        USBD_AUDIO_DESC_TYPE_CS_ENDPOINT,                                // 0X25,类型，音频端点描述符
+        USBD_AUDIO_SPECIFIC_EP_DESC_SUBTYPE_GENERAL,           //  01, GENERAL
+       
+        0x00,                                         //0,  无频率控制，无pitch控制
+        0x00,                                        //0, 无定义
+        0x00,                                       // 0000, DELAY
+        0x00,
+ 
+         
+        /*next descriptor specific for synch ep */
+        /* USB Play feedback ep  */
+        /* Standard AS Isochronous Audio Data Endpoint Descriptor*/
+        USBD_AUDIO_STANDARD_ENDPOINT_DESC_SIZE,           //09
+        USB_DESC_TYPE_ENDPOINT,                                                //05, 类型，端点描述符
+        USB_AUDIO_CONFIG_PLAY_EP_SYNC,                                //0X81, 端点1， 输入
+        USBD_EP_TYPE_ISOC,                                                           //01, (TransferType=Isochronous SyncType=None EndpointType=Data)
+        LOBYTE(AUDIO_FEEDBACK_EP_PACKET_SIZE),      //0X0003, 3 BYTES
+        HIBYTE(AUDIO_FEEDBACK_EP_PACKET_SIZE),
+        0x01,                                                                                 //1MS
+        USB_AUDIO_CONFIG_PLAY_FEEDBACK_REFRESH,     //07, 128MS
+        0,                                                                                            // ?
+        /* 09 byte*/
+       
+
+
+======================== audio_class_interface  =====参数1/1================================
+
+ USBD_AUDIO_InterfaceCallbacksfTypeDef   audio_class_interface =
+ {
+      .Init = AUDIO_USB_Init,
+      .DeInit = AUDIO_USB_DeInit,
+      .GetConfigDesc = AUDIO_USB_GetConfigDesc,         //这里
+      .GetState = AUDIO_USB_GetState,
+      .private_data = 0 
+ };
+
+
+ 
+======================== hpcd_USB_OTG_FS=====参数1/1================================
+
+
+PCD_HandleTypeDef     hpcd_USB_OTG_FS;
+
+功能：设置usb引脚， 使能 USB FS 时钟，中断优先级为6 ，使能usb的OTG_FS中断；激活usb寄存器；
+参数： hUsbDeviceFS
+USBD_LL_Init(  *pdev) 
+ 
+    if (hUsbDeviceFS->id == DEVICE_FS)
+   
+        //互相联接
+        hpcd_USB_OTG_FS.pData  = hUsbDeviceFS;                           //pdev
+        hUsbDeviceFS->pData       = &hpcd_USB_OTG_FS;
+
+        hpcd_USB_OTG_FS.Instance = USB_OTG_FS;           //看下面
+ 
+        hpcd_USB_OTG_FS.Init.dev_endpoints = 5;
+        hpcd_USB_OTG_FS.Init.ep0_mps       = 0x40;
+        hpcd_USB_OTG_FS.Init.Sof_enable    = ENABLE;
+ 
+        hpcd_USB_OTG_FS.Init.speed               = PCD_SPEED_FULL;
+        hpcd_USB_OTG_FS.Init.dma_enable          = DISABLE;
+        hpcd_USB_OTG_FS.Init.phy_itface          = PCD_PHY_EMBEDDED;
+        hpcd_USB_OTG_FS.Init.low_power_enable    = DISABLE;
+        hpcd_USB_OTG_FS.Init.lpm_enable          = DISABLE;
+        hpcd_USB_OTG_FS.Init.vbus_sensing_enable = ENABLE;
+        hpcd_USB_OTG_FS.Init.use_dedicated_ep1   = DISABLE;
+
+        //设置usb引脚， 使能 USB FS 时钟，中断优先级为6 ，使能usb的OTG_FS中断；激活usb寄存器；
+        HAL_PCD_Init(&hpcd_USB_OTG_FS)；         
+ 
+        USBD_LL_Setup_Fifo();       // 待完善， 待理解  （主要设置fifo）
+ 
+
+ ---------   
+ 
+#define USB_OTG_FS          ((USB_OTG_GlobalTypeDef *) USB_OTG_FS_PERIPH_BASE)
+#define USB_OTG_HS          ((USB_OTG_GlobalTypeDef *) USB_OTG_HS_PERIPH_BASE)
+
+#define USB_OTG_MODE_DEVICE                    0U
+#define USB_OTG_MODE_HOST                      1U
+#define USB_OTG_MODE_DRD                        2U
+
+
+======================== hUsbDeviceFS =====参数1/1================================
+
+
+MX_USB_DEVICE_Init(  void(*rx_callback)( *ptr,  len)  )
+ 
+             ......  (忽略)
+ 
+                //USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS);
+
+                       hUsbDeviceFS->pClass = NULL;
+                       hUsbDeviceFS->pUserData = NULL;
+                       hUsbDeviceFS->pConfDesc = NULL; 
+                       hUsbDeviceFS->dev_state = USBD_STATE_DEFAULT;
+
+                       hUsbDeviceFS->pDesc =  FS_Desc;
+                       hUsbDeviceFS->id = DEVICE_FS;   // =0
+                       USBD_LL_Init(hUsbDeviceFS);                         // 看上面的hpcd_USB_OTG_FS参数
+ 
+
+                //USBD_RegisterClass(&hUsbDeviceFS, USBD_AUDIO_CLASS);
+                          hUsbDeviceFS->pClass = USBD_AUDIO_CLASS;                                // hUsbDeviceFS->pClass =USBD_AUDIO_CLASS   //等于USBD_AUDIO       //这里 
+
+                           if (pdev->pClass->GetFSConfigDescriptor != NULL)     
+                                   //pdev->pConfDesc = pdev->pClass->GetFSConfigDescriptor(&len);                    
+                                   //    hUsbDeviceFS->pConfDesc = USBD_AUDIO_GetCfgDesc(&len);                  
+                                             hUsbDeviceFS->pConfDesc = USBD_AUDIO_ConfigDescriptor;                 //这里 
+
+
+                //USBD_AUDIO_RegisterInterface(&hUsbDeviceFS, &audio_class_interface);
+                      hUsbDeviceFS->pUserData=audio_class_interface;
+
+                      //audio_class_interface->GetConfigDesc(&USBD_AUDIO_CfgDesc, &USBD_AUDIO_CfgDescSize, aifc->private_data);
+                      //   audio_class_interface->GetConfigDesc(   &USBD_AUDIO_CfgDesc,     &USBD_AUDIO_CfgDescSize,      audio_class_interface->private_data);
+                      //           AUDIO_USB_GetConfigDesc (   &USBD_AUDIO_CfgDesc,     &USBD_AUDIO_CfgDescSize,      audio_class_interface->private_data);
+                                             USBD_AUDIO_CfgDescSize = USB_AUDIO_GetConfigDescriptor(USBD_AUDIO_CfgDesc);           // 待完善， 待理解
+  
+
+                //USBD_Start(&hUsbDeviceFS);
+                //       USBD_LL_Start(hUsbDeviceFS);
+                                 HAL_PCD_Start(hUsbDeviceFS->pData);   // 待完善， 待理解
+
+
+
+参数：hUsbDeviceFS
+USBD_LL_Init( *pdev)
+ 
+        /* Init USB_IP */
+        if (pdev->id == DEVICE_FS)
+ 
+                /* Link The driver to the stack */
+                hpcd_USB_OTG_FS.pData = hUsbDeviceFS;
+                hUsbDeviceFS->pData                     = &hpcd_USB_OTG_FS;
+
+               ......(忽略)
+
+
+--------
+
+
+#define USBD_AUDIO_CLASS    &USBD_AUDIO
+USBD_ClassTypeDef  USBD_AUDIO = 
+{
+  USBD_AUDIO_Init,
+  USBD_AUDIO_DeInit,
+  USBD_AUDIO_Setup,
+  USBD_AUDIO_EP0_TxReady,  
+  USBD_AUDIO_EP0_RxReady,
+  USBD_AUDIO_DataIn,
+  USBD_AUDIO_DataOut,
+  USBD_AUDIO_SOF,
+  USBD_AUDIO_IsoINIncomplete,
+  USBD_AUDIO_IsoOutIncomplete,      
+  USBD_AUDIO_GetCfgDesc,
+  USBD_AUDIO_GetCfgDesc, 
+  USBD_AUDIO_GetCfgDesc,
+  USBD_AUDIO_GetDeviceQualifierDesc,
+};
+ 
+typedef struct _Device_cb
+{
+  uint8_t        (*Init)(struct _USBD_HandleTypeDef *pdev, uint8_t cfgidx);
+  uint8_t        (*DeInit)(struct _USBD_HandleTypeDef *pdev, uint8_t cfgidx);
+ 
+  uint8_t       (*Setup)(struct _USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef  *req);
+  uint8_t       (*EP0_TxSent)(struct _USBD_HandleTypeDef *pdev);
+  uint8_t       (*EP0_RxReady)(struct _USBD_HandleTypeDef *pdev);
+ 
+  uint8_t      (*DataIn)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+  uint8_t      (*DataOut)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+  uint8_t      (*SOF)(struct _USBD_HandleTypeDef *pdev);
+  uint8_t      (*IsoINIncomplete)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+  uint8_t      (*IsoOUTIncomplete)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+
+  uint8_t       *(*GetHSConfigDescriptor)  (uint16_t *length);
+  uint8_t       *(*GetFSConfigDescriptor)  (uint16_t *length);
+  uint8_t       *(*GetOtherSpeedConfigDescriptor)  (uint16_t *length);
+  uint8_t       *(*GetDeviceQualifierDescriptor)(uint16_t *length);
+
+} USBD_ClassTypeDef;
+
+
+
+USBD_DescriptorsTypeDef     FS_Desc =
+{
+  USBD_FS_DeviceDescriptor,
+  USBD_FS_LangIDStrDescriptor, 
+  USBD_FS_ManufacturerStrDescriptor,
+  USBD_FS_ProductStrDescriptor,
+  USBD_FS_SerialStrDescriptor,
+  USBD_FS_ConfigStrDescriptor,
+  USBD_FS_InterfaceStrDescriptor,
+ 
+};
+
+
+
+======================== USB 引脚=====参数1/1================================
+
+
+
+ MX_USB_DEVICE_Init(  void(*rx_callback)( *ptr,  len)  )
+ 
+                GPIO_InitTypeDef GPIO_InitStruct;
+
+                /*Configure GPIO pin : USB_PowerSwitchOn_Pin */
+                GPIO_InitStruct.Pin         = USB_PowerSwitchOn_Pin;
+                GPIO_InitStruct.Mode        = GPIO_MODE_OUTPUT_PP;
+                GPIO_InitStruct.Pull        = GPIO_NOPULL;
+                GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+                HAL_GPIO_Init(USB_PowerSwitchOn_GPIO_Port, &GPIO_InitStruct);
+
+                /*Configure GPIO pin : USB_OverCurrent_Pin */
+                GPIO_InitStruct.Pin         = USB_OverCurrent_Pin;
+                GPIO_InitStruct.Mode        = GPIO_MODE_INPUT;
+                GPIO_InitStruct.Pull        = GPIO_NOPULL;
+                GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+                HAL_GPIO_Init(USB_OverCurrent_GPIO_Port, &GPIO_InitStruct);
+
+                /*Configure GPIO pin Output Level */
+                HAL_GPIO_WritePin(USB_PowerSwitchOn_GPIO_Port, USB_PowerSwitchOn_Pin, GPIO_PIN_RESET);
+
+       
+             ......  (忽略)
+
+
+
+
+
+======================== USB_AudioPlabackSession=====参数1/1================================
+
+参数： AA ,  BB ,  CC ,  USB_AudioPlabackSession
+AUDIO_PlaybackSessionInit( * as_desc,   * controls_desc, * control_count,   session_handle)
+ 
+        AUDIO_USBSession_t *play_session;
+        AUDIO_USBFeatureUnitDefaults_t controller_defaults;
+        
+         play_session = session_handle;                              //USB_AudioPlabackSession
+         memset( play_session, 0, ALL);
+                
+         play_session->interface_num = USBD_AUDIO_CONFIG_PLAY_SA_INTERFACE;
+         play_session->alternate = 0;
+         play_session->SessionDeInit = USB_AudioPlaybackSessionDeInit;
+ 
+         play_session->session.SessionCallback = USB_AudioPlaybackSessionCallback;
+         play_session->buffer.size = USB_AUDIO_CONFIG_PLAY_BUFFER_SIZE;
+         static uint8_t play_session_buffer[USB_AUDIO_CONFIG_PLAY_BUFFER_SIZE] = {0};
+         play_session->buffer.data = play_session_buffer;
+
+            ......  (忽略)
+
+           play_session->session.node_list = &PlaybackUSBInputNode;
+       
+             ......  (忽略)
+
+           play_session->session.state = AUDIO_SESSION_INITIALIZED;
+
+
+
+======================== haudio ====参数1/1================================
+ 
+as_desc = haudio->aud_function->as_interfaces[0]
+
+参数：haudio->aud_function->as_interfaces[0],  haudio->aud_function->controls[0] ,   &control_count, ,  USB_AudioPlabackSession
+
+AUDIO_PlaybackSessionInit( USBD_AUDIO_AS_InterfaceTypeDef * as_desc,   * controls_desc, * control_count,   session_handle )
+
+         as_desc->synch_enabled = 1;
+         as_desc->synch_ep.ep_num = USB_AUDIO_CONFIG_PLAY_EP_SYNC;
+         as_desc->synch_ep.GetFeedback = USB_AudioPlaybackGetFeedback;
+         as_desc->synch_ep.private_data =  play_session;
+         as_desc->SofReceived = AUDIO_USB_Session_Sof_Received;
+ 
+          as_desc->interface_num =  play_session->interface_num;
+          as_desc->alternate = 0;
+          as_desc->max_alternate = AUDIO_USB_PLAYBACK_ALTERNATE;
+
+          //as_desc->private_data = session_handle;      //USB_AudioPlabackSession
+              haudio->aud_function->as_interfaces[0]->private_data = session_handle;      //USB_AudioPlabackSession     (中间过程04)
+
+
+          as_desc->SetAS_Alternate = USB_AudioPlaybackSetAudioStreamingInterfaceAlternateSetting;
+          as_desc->GetState = USB_AudioPlaybackGetState;
+
+
+
+
+==================USBD_AUDIO=======参数1/1=====================
+
+#define USBD_AUDIO_CLASS    &USBD_AUDIO
+USBD_ClassTypeDef  USBD_AUDIO = 
+{
+  USBD_AUDIO_Init,
+  USBD_AUDIO_DeInit,
+  USBD_AUDIO_Setup,                             //Setup     //这里
+  USBD_AUDIO_EP0_TxReady,  
+  USBD_AUDIO_EP0_RxReady,
+  USBD_AUDIO_DataIn,
+  USBD_AUDIO_DataOut,
+  USBD_AUDIO_SOF,
+  USBD_AUDIO_IsoINIncomplete,
+  USBD_AUDIO_IsoOutIncomplete,      
+  USBD_AUDIO_GetCfgDesc,
+  USBD_AUDIO_GetCfgDesc,                        //GetFSConfigDescriptor  //这里
+  USBD_AUDIO_GetCfgDesc,
+  USBD_AUDIO_GetDeviceQualifierDesc,
+};
+
+typedef struct _Device_cb
+{
+  uint8_t        (*Init)(struct _USBD_HandleTypeDef *pdev, uint8_t cfgidx);
+  uint8_t        (*DeInit)(struct _USBD_HandleTypeDef *pdev, uint8_t cfgidx);
+ 
+  uint8_t       (*Setup)(struct _USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef  *req);
+  uint8_t       (*EP0_TxSent)(struct _USBD_HandleTypeDef *pdev);
+  uint8_t       (*EP0_RxReady)(struct _USBD_HandleTypeDef *pdev);
+ 
+  uint8_t      (*DataIn)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+  uint8_t      (*DataOut)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+  uint8_t      (*SOF)(struct _USBD_HandleTypeDef *pdev);
+  uint8_t      (*IsoINIncomplete)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+  uint8_t      (*IsoOUTIncomplete)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+
+  uint8_t       *(*GetHSConfigDescriptor)  (uint16_t *length);
+  uint8_t       *(*GetFSConfigDescriptor)  (uint16_t *length);
+  uint8_t       *(*GetOtherSpeedConfigDescriptor)  (uint16_t *length);
+  uint8_t       *(*GetDeviceQualifierDescriptor)(uint16_t *length);
+
+} USBD_ClassTypeDef;
+
+
+
+
+================== AUDIO_SpeakerHandler 即PlaybackSpeakerOutputNode=====参数1/1===================
+
+
+数据流：   PlaybackSpeakerOutputNode  --  AUDIO_SpeakerHandler 
+AUDIO_SpeakerInit( *audio_description, *session_handle, node_handle)   //参数：PlaybackAudioDescription ,  USB_AudioPlabackSession->session ， PlaybackSpeakerOutputNode
+ 
+        AUDIO_SpeakerNode_t *speaker;
+        speaker = (AUDIO_SpeakerNode_t *)node_handle;    // = PlaybackSpeakerOutputNode
+
+        memset(speaker, 0, all);
+
+        speaker->node.type                         = AUDIO_OUTPUT;
+        speaker->node.state                         = AUDIO_NODE_INITIALIZED;
+
+        speaker->node.session_handle        = session_handle;            //USB_AudioPlabackSession->session                            //这里
+
+        speaker->node.audio_description = audio_description;      //PlaybackAudioDescription
+        speaker->specific.alt_buffer        = speaker_specific_alt_buffer;
+ 
+        AUDIO_SpeakerInitInjectionsParams(speaker);
+
+        /* set callbacks */
+        speaker->SpeakerDeInit                    = AUDIO_SpeakerDeInit;
+        speaker->SpeakerStart                     = AUDIO_SpeakerStart;
+        speaker->SpeakerStop                        = AUDIO_SpeakerStop;
+        speaker->SpeakerChangeFrequency = AUDIO_SpeakerChangeFrequency;
+        speaker->SpeakerMute                        = AUDIO_SpeakerMute;
+        speaker->SpeakerSetVolume             = AUDIO_SpeakerSetVolume;
+        speaker->SpeakerStartReadCount    = AUDIO_SpeakerStartReadCount;
+        speaker->SpeakerGetReadCount        = AUDIO_SpeakerGetLastReadCount;   //这里
+
+        uint16_t ms_package_size = AUDIO_MS_PACKET_SIZE_FROM_AUD_DESC(speaker->node.audio_description);
+
+        audio_tx_update_package_size(ms_package_size);
+
+        AUDIO_SpeakerHandler = speaker;   //这里
+
+
+ 
+
+ 
+
+======================== PlaybackUSBInputNode=====参数1/1================================
+
+
+参数： haudio->aud_function->as_interfaces[0]->data_ep ( 即，大data_ep   ) ,    BB ,  USB_AudioPlabackSession->session ,  PlaybackUSBInputNode
+ USB_AudioStreamingInputInit( * data_ep, * audio_desc, * session_handle,   node_handle)
+ 
+  AUDIO_USBInputOutputNode_t * input_node;   //PlaybackUSBInputNode
+  
+  input_node =  node_handle;
+
+  input_node->node.audio_description = audio_desc;
+  input_node->node.session_handle = session_handle;   // USB_AudioPlabackSession->session
+  input_node->flags = 0;
+  input_node->node.state = AUDIO_NODE_INITIALIZED;
+  input_node->node.type = AUDIO_INPUT;
+ 
+  input_node->IODeInit = USB_AudioStreamingInputOutputDeInit;
+  input_node->IOStart = USB_AudioStreamingInputOutputStart;
+  input_node->IORestart = USB_AudioStreamingInputOutputRestart;
+  input_node->IOStop = USB_AudioStreamingInputOutputStop;
+  input_node->packet_length = AUDIO_USB_PACKET_SIZE_FROM_AUD_DESC(audio_desc);
+ 
+  input_node->max_packet_length = AUDIO_MAX_PACKET_WITH_FEEDBACK_LENGTH_FROM_AUDIO_DESC(audio_desc);
+ 
+              ......  (忽略)
+
+
+
+==========================大data_ep ===参数1/1================================
+
+ 
+参数：  haudio->aud_function->as_interfaces[0]->data_ep (  即，大data_ep   ) ,   BB ,  USB_AudioPlabackSession->session ,  PlaybackUSBInputNode
+ USB_AudioStreamingInputInit(  * data_ep, * audio_desc, * session_handle,   node_handle)
+ 
+ 
+  data_ep->ep_num = USBD_AUDIO_CONFIG_PLAY_EP_OUT;      //0x01
+  data_ep->control_name_map = 0;
+  data_ep->control_selector_map = 0;
+  data_ep->private_data = node_handle;          // PlaybackUSBInputNode   //这里
+
+  data_ep->DataReceived = USB_AudioStreamingInputDataReceived;    //这里
+  data_ep->GetBuffer = USB_AudioStreamingInputGetBuffer;
+  data_ep->GetMaxPacketLength = USB_AudioStreamingInputOutputGetMaxPacketLength;
+
+  data_ep->GetState = USB_AudioStreamingInputOutputGetState;
+ 
+ 
+
+
+====================default_app ， DEFAULT_APP ， helpers_app_audio_tx=====参数1/1==================
+
+
+
+struct app_definition_s
+{
+        char *app_name;
+        mode_e app_mode;
+        void (*helper)(void const *argument);
+        void (*terminate)(void);
+        usb_data_e (*on_rx)(uint8_t *pBuf , uint16_t len, uint16_t *read_offset,uint16_t cyclic_size);
+        void (*command_parser)(usb_data_e res, char * text);
+        const struct command_s *sub_command;
+};
+typedef   struct   app_definition_s    app_definition_t;
+extern   app_definition_t   *known_apps;
+
+  struct command_s
+ {
+     const char     *name;      /**< Command name string */
+     const uint32_t mode;       /**< allowed execution operation mode */
+     REG_FN         ((*fn));    /**< function() */
+     const char     *cmnt;
+ };
+
+const app_definition_t helpers_app_audio_tx[] __attribute__((section(".known_apps"))) = 
+{
+    {"AUDIO_TX", mAPP, audio_tx_helper,  audio_tx_terminate, waitForCommand, command_parser, &known_commands_audio_tx}
+};
+
+#define DEFAULT_APP    helpers_app_audio_tx
+
+app_definition_t *default_app   ...= DEFAULT_APP;
+
+-----------
+
+//运行Default任务
+ StartDefaultTask(  *argument)    
+
+    const app_definition_t *queue_message;
+    const app_definition_t *default_app = DefaultTaskHookEvent();  //=default_app
+
+    if (default_app != NULL) 
+           //EventManagerRegisterApp(&default_app);
+           //        xQueueSend(xTaskQueueEvent, default_app, 0);
+                              xQueueGenericSend(xTaskQueueEvent, default_app, 0, 0);   //把default_app加入到消息队列
+   
+    while (1)    
+
+        Watchdog.refresh();
+
+       // EventManagerWaitAppRegistration( &queue_message, 200) ;
+       //    xQueueReceive(xTaskQueueEvent, &queue_message, 200); 
+                   xQueueGenericReceive(xTaskQueueEvent, &queue_message, 200, pdFALSE )  //从消息队列中取出default_app，赋值给queue_message
+ 
+            if (AppGet()->terminate != NULL) 
+                    AppGet()->terminate();
+ 
+            AppSet(NULL);       //app =  &DEFAULT_APP;
+
+            osThreadYield();   // 让其他线程先运行，等其他线程结束后再运行下面 
+  
+            AppSet(queue_message);  //  //app = queue_message = default_app= DEFAULT_APP , 即 helpers_app_audio_tx
+            if (queue_message->helper != NULL) 
+                queue_message->helper(NULL);                                    //这里 helpers_app_audio_tx->helper  =   audio_tx_helper
+ 
+ 
+        osThreadYield();

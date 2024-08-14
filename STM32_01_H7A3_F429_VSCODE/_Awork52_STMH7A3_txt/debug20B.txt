@@ -1,0 +1,34 @@
+
+
+    PRIO_FlushTask          = osPriorityAboveNormal       //优先级 为 +1
+    PRIO_CtrlTask           = osPriorityNormal                    //优先级 为 0
+    PRIO_StartDefaultTask   = osPriorityLow                   //优先级 为 -2
+
+-------
+
+
+PRIO_FlushTask          = osPriorityAboveNormal,     //优先级 为 +1
+
+typedef enum  {
+  osPriorityIdle          = -3,          ///< priority: idle (lowest)
+  osPriorityLow           = -2,          ///< priority: low
+  osPriorityBelowNormal   = -1,          ///< priority: below normal
+  osPriorityNormal        =  0,          ///< priority: normal (default)
+  osPriorityAboveNormal   = +1,          ///< priority: above normal
+  osPriorityHigh          = +2,          ///< priority: high
+  osPriorityRealtime      = +3,          ///< priority: realtime (highest)
+  osPriorityError         =  0x84        ///< system cannot determine priority or thread has illegal priority
+} osPriority;
+
+
+
+---------------------------------------
+
+
+void NotifyControlTask(void)
+{
+    if(ctrlTask.Handle != NULL) //RTOS : ctrlTask could be not started yet
+    {
+        osSignalSet(ctrlTask.Handle, CTRL_DATA_RECEIVED);    //signal to the ctrl thread : USB data ready
+    }
+}

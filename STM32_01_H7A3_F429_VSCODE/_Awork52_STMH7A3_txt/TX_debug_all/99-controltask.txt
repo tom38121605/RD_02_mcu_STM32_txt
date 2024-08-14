@@ -1,0 +1,37 @@
+
+
+      AppSet(queue_message);
+
+
+struct app_definition_s
+{
+    char          *app_name;
+    mode_e    app_mode;
+    void  (*helper)   (void const *argument);          //函数
+    void (*terminate)  (void);                                      //函数
+    usb_data_e (*on_rx)    (uint8_t *pBuf , uint16_t len, uint16_t *read_offset,uint16_t cyclic_size);        //函数
+    void (*command_parser)   (usb_data_e res, char * text);                                                                          //函数
+    const struct command_s *sub_command;
+};
+typedef struct app_definition_s app_definition_t;
+
+
+const app_definition_t    helpers_app_audio_rx[] __attribute__((section(".known_apps"))) =
+ {
+    {"AUDIO_RX", mAPP, audio_rx_helper, audio_rx_terminate, waitForCommand, command_parser, &known_commands_audio_rx}    //这里on_rx = waitForCommand
+};
+
+#define   DEFAULT_APP      helpers_app_audio_rx
+
+static const app_definition_t *default_app __attribute__((section(".rconfig"))) = DEFAULT_APP;
+
+static const app_definition_t *app = idle_app;
+
+static void restore_default_app(void) 
+{
+    default_app  = DEFAULT_APP;
+}
+
+
+ ret = AppGet()->on_rx(usbRx->buf, usbLen,&tailUsb,sizeof(usbRx->buf) - 1);   //on_rx = waitForCommand      //这里
+

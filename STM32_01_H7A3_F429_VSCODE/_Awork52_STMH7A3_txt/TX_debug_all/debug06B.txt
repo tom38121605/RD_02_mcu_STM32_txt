@@ -1,0 +1,240 @@
+
+ 
+
+------------------------------------------------------------------------------------
+
+
+typedef enum 
+{
+  AUDIO_NODE_OFF, /* node not initialized */
+  AUDIO_NODE_INITIALIZED,
+  AUDIO_NODE_STARTED,/* node is running */ 
+  AUDIO_NODE_STOPPED,
+  AUDIO_NODE_ERROR
+}
+ AUDIO_NodeState_t;
+
+
+typedef enum 
+{
+  AUDIO_INPUT,
+  AUDIO_OUTPUT,
+  AUDIO_CONTROL,
+  AUDIO_PROCESSING
+}
+AUDIO_NodeType_t;
+
+
+
+/* Events raised by nodes to session */
+typedef enum 
+{
+  AUDIO_THRESHOLD_REACHED, /* The audio circular buffer threshold is reached , we have enough data to read from the circular buffer */
+  AUDIO_BEGIN_OF_STREAM,   /* First packet is written to buffer */
+  AUDIO_PACKET_RECEIVED,   /* Packet is received from the USB host */
+  AUDIO_PACKET_PLAYED,     /*  packet is played by the speaker */
+  AUDIO_OVERRUN,           /*  An overrun is accured on the circular buffer*/
+  AUDIO_UNDERRUN,      /*  An underrun is accured on the circular buffer*/
+  AUDIO_OVERRUN_TH_REACHED,  /*  An overrun threshold is reached , that means that overrun is soon but not yet reproduced on the circular buffer*/
+  AUDIO_UNDERRUN_TH_REACHED, /*  An underrun threshold is reached , that means that underrun is soon but not yet reproduced on the circular buffer*/
+  AUDIO_FREQUENCY_CHANGED     /* The host has request sampling rate change, we need to restart nodes and reset the circular buffer */
+} AUDIO_SessionEvent_t;
+
+ 
+
+-----------------------
+
+
+typedef struct _Device_cb
+{
+  uint8_t        (*Init)(struct _USBD_HandleTypeDef *pdev, uint8_t cfgidx);
+  uint8_t        (*DeInit)(struct _USBD_HandleTypeDef *pdev, uint8_t cfgidx);
+ 
+  uint8_t       (*Setup)(struct _USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef  *req);
+  uint8_t       (*EP0_TxSent)(struct _USBD_HandleTypeDef *pdev);
+  uint8_t       (*EP0_RxReady)(struct _USBD_HandleTypeDef *pdev);
+ 
+  uint8_t      (*DataIn)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+  uint8_t      (*DataOut)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+  uint8_t      (*SOF)(struct _USBD_HandleTypeDef *pdev);
+  uint8_t      (*IsoINIncomplete)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+  uint8_t      (*IsoOUTIncomplete)(struct _USBD_HandleTypeDef *pdev, uint8_t epnum);
+
+  uint8_t       *(*GetHSConfigDescriptor)(uint16_t *length);
+  uint8_t       *(*GetFSConfigDescriptor)(uint16_t *length);
+  uint8_t       *(*GetOtherSpeedConfigDescriptor)(uint16_t *length);
+  uint8_t       *(*GetDeviceQualifierDescriptor)(uint16_t *length);
+
+} USBD_ClassTypeDef;
+
+
+
+typedef struct
+{
+  uint8_t   *(*GetDeviceDescriptor)(USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t   *(*GetLangIDStrDescriptor)(USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t   *(*GetManufacturerStrDescriptor)(USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t   *(*GetProductStrDescriptor)(USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t   *(*GetSerialStrDescriptor)(USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t   *(*GetConfigurationStrDescriptor)(USBD_SpeedTypeDef speed, uint16_t *length);
+  uint8_t   *(*GetInterfaceStrDescriptor)(USBD_SpeedTypeDef speed, uint16_t *length);
+ 
+} USBD_DescriptorsTypeDef;
+
+
+
+
+
+
+
+
+===============================*********==========================================
+
+
+
+ 
+参数： AA , BB ,  CC ,  USB_AudioPlabackSession
+AUDIO_PlaybackSessionInit( * as_desc,   * controls_desc, * control_count,   session_handle)
+ 
+        AUDIO_USBSession_t *play_session;
+        AUDIO_USBFeatureUnitDefaults_t controller_defaults;
+        
+         play_session = session_handle;                                  //USB_AudioPlabackSession                           //这里
+         memset( play_session, 0, ALL);
+                
+         play_session->interface_num = USBD_AUDIO_CONFIG_PLAY_SA_INTERFACE;
+         play_session->alternate = 0;
+         play_session->SessionDeInit = USB_AudioPlaybackSessionDeInit;
+ 
+         play_session->session.SessionCallback = USB_AudioPlaybackSessionCallback;               //here
+         play_session->buffer.size = USB_AUDIO_CONFIG_PLAY_BUFFER_SIZE;
+         static uint8_t play_session_buffer[USB_AUDIO_CONFIG_PLAY_BUFFER_SIZE] = {0};
+         play_session->buffer.data = play_session_buffer;
+ 
+                /*set audio used option*/
+        PlaybackAudioDescription.resolution = USB_AUDIO_CONFIG_PLAY_RES_BYTE;
+        PlaybackAudioDescription.audio_type = USBD_AUDIO_FORMAT_TYPE_PCM; /* PCM*/
+        PlaybackAudioDescription.channels_count = USB_AUDIO_CONFIG_PLAY_CHANNEL_COUNT;
+        PlaybackAudioDescription.channels_map = USB_AUDIO_CONFIG_PLAY_CHANNEL_MAP; /* Left and Right */
+        PlaybackAudioDescription.frequency = USB_AUDIO_CONFIG_PLAY_DEF_FREQ;
+        PlaybackAudioDescription.audio_volume_db_256 = VOLUME_SPEAKER_DEFAULT_DB_256;
+        PlaybackAudioDescription.audio_mute = 0;
+        *control_count = 0;
+ 
+         /* create usb input node */
+        USB_AudioStreamingInputInit(&as_desc->data_ep,        &PlaybackAudioDescription,        &play_session->session,        &PlaybackUSBInputNode);
+         play_session->session.node_list = &PlaybackUSBInputNode;
+        /* initialize usb feature node */
+        controller_defaults.audio_description = &PlaybackAudioDescription;
+                /* please choose default volumes value of        speaker */
+        controller_defaults.max_volume = VOLUME_SPEAKER_MAX_DB_256;
+        controller_defaults.min_volume = VOLUME_SPEAKER_MIN_DB_256;
+        controller_defaults.res_volume = VOLUME_SPEAKER_RES_DB_256;
+        USB_AudioStreamingFeatureUnitInit( controls_desc,        &controller_defaults,        USB_AUDIO_CONFIG_PLAY_UNIT_FEATURE_ID, (uint32_t)&PlaybackFeatureUnitNode);
+        (*control_count)++;
+        PlaybackUSBInputNode.node.next = &PlaybackFeatureUnitNode;
+
+        AUDIO_SpeakerInit(&PlaybackAudioDescription, &play_session->session, &PlaybackSpeakerOutputNode);   //这里
+
+        PlaybackFeatureUnitNode.node.next =  &PlaybackSpeakerOutputNode;
+
+ 
+             ......  (忽略)
+
+
+        /* set USB AUDIO class callbacks */
+        as_desc->interface_num =        play_session->interface_num;
+        as_desc->alternate = 0;
+        as_desc->max_alternate = AUDIO_USB_PLAYBACK_ALTERNATE;
+        as_desc->private_data = session_handle;
+        as_desc->SetAS_Alternate = USB_AudioPlaybackSetAudioStreamingInterfaceAlternateSetting;
+        as_desc->GetState = USB_AudioPlaybackGetState;
+
+        /* initialize working buffer */
+        uint16_t buffer_margin = (PlaybackUSBInputNode.max_packet_length > PlaybackUSBInputNode.packet_length)?PlaybackUSBInputNode.max_packet_length:0;
+
+        USB_AudioStreamingInitializeDataBuffer(&play_session->buffer, USB_AUDIO_CONFIG_PLAY_BUFFER_SIZE,
+                                                                                                                                        AUDIO_MS_PACKET_SIZE_FROM_AUD_DESC(&PlaybackAudioDescription) , buffer_margin);
+        play_session->session.state = AUDIO_SESSION_INITIALIZED;
+
+
+
+
+--------------------
+
+
+ 
+ AUDIO_SpeakerUpdateBuffer( )
+
+        if ((AUDIO_SpeakerHandler) && (AUDIO_SpeakerHandler->node.state != AUDIO_NODE_OFF))
+        
+                /* if speaker was started prepare next data */
+                if (AUDIO_SpeakerHandler->node.state == AUDIO_NODE_STARTED)
+                
+                        if (AUDIO_SpeakerHandler->specific.cmd & SPEAKER_CMD_STOP)
+                         
+                                AUDIO_SpeakerHandler->specific.data            = AUDIO_SpeakerHandler->specific.alt_buffer;
+                                AUDIO_SpeakerHandler->specific.data_size = AUDIO_SpeakerHandler->specific.injection_size;
+                                AUDIO_SpeakerHandler->specific.offset        = 0;
+                                memset(AUDIO_SpeakerHandler->specific.data, 0, AUDIO_SpeakerHandler->specific.data_size);
+                                AUDIO_SpeakerHandler->node.state = AUDIO_NODE_STOPPED;
+                                audio_tx_buffer_reset();
+ 
+                                AUDIO_SpeakerHandler->specific.cmd   ^= SPEAKER_CMD_STOP;
+                       
+                        else                       
+
+                                //AUDIO_SpeakerHandler->node.session_handle->SessionCallback( AUDIO_PACKET_PLAYED, AUDIO_SpeakerHandler,  AUDIO_SpeakerHandler->node.session_handle );     
+                                //        USB_AudioPlabackSession->session->SessionCallback( AUDIO_PACKET_PLAYED, AUDIO_SpeakerHandler,  AUDIO_SpeakerHandler->node.session_handle );
+                                                 USB_AudioPlaybackSessionCallback( AUDIO_PACKET_PLAYED, AUDIO_SpeakerHandler,  AUDIO_SpeakerHandler->node.session_handle );
+
+
+                                AUDIO_SpeakerHandler->specific.data_size = AUDIO_SpeakerHandler->packet_length;
+                                /* prepare next size to inject */
+                                read_length = AUDIO_SpeakerHandler->packet_length;
+
+                                wr_distance = AUDIO_BUFFER_FILLED_SIZE(AUDIO_SpeakerHandler->buf);
+
+                                if (wr_distance < read_length)                                
+                          
+                                        //AUDIO_SpeakerHandler->node.session_handle->SessionCallback(AUDIO_UNDERRUN, AUDIO_SpeakerHandler,    AUDIO_SpeakerHandler->node.session_handle);
+                                                 USB_AudioPlaybackSessionCallback(AUDIO_UNDERRUN, AUDIO_SpeakerHandler,    AUDIO_SpeakerHandler->node.session_handle);
+
+
+                                        read_length = 0;
+                                 
+                                else                                 
+
+ 
+                                                 ......  (忽略)
+
+
+                                                    
+--------------------------------
+
+void usb_rx_callback_circular_buf(uint8_t *ptr, size_t len)
+{    
+    int head = usbRx->head;
+    int tail = usbRx->tail;
+    int size = sizeof(usbRx->buf);
+
+    if (CIRC_SPACE(head, tail, size) > len)
+    {
+        for(int i = 0; i<len; i++)
+        {
+            usbRx->buf[head] = ptr[i];
+            head = (head + 1) & (size - 1);
+        }
+
+        usbRx->head = head;
+    }
+    else
+    {
+        /* USB RX packet can not fit free space in the buffer */
+    }
+    extern void NotifyControlTask(void);
+    NotifyControlTask();
+}
+
+
+  

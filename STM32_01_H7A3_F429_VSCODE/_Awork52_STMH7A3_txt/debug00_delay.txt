@@ -1,0 +1,66 @@
+
+
+
+osDelay(5);                                                         //毫秒级延时，让出控制权
+                                                                             //内部使用 vTaskDelay() 或 vTaskDelayUntil()
+
+HAL_Delay(5);     //毫秒级延时，不让出控制权
+
+
+
+
+=======================================================
+
+void Sleep(volatile uint32_t dwMs)
+{
+    uint32_t dwStart;
+    Timer.start(&dwStart);
+    while (Timer.check(dwStart, dwMs) == false)
+    {
+#ifndef DEBUG
+//        __WFI();
+#endif
+    }
+}
+
+/* Wrapper function to be used by decadriver. Declared in deca_device_api.h */
+void deca_sleep(unsigned int time_ms)
+{
+    Sleep(time_ms);
+}
+
+/* @fn    usleep
+ * @brief precise usleep() delay
+ *        We are using Data Watchpoint Register to calculate
+ *        the exact number of MCU cycles per usec.
+ *        The DWT is an optional block for Cortex M3/M4/M7
+ * */
+void usleep(uint32_t usec)
+{
+    uint32_t oldDEMCR;
+    uint32_t iniCYCCNT;
+    uint64_t cycles;
+
+    oldDEMCR = CoreDebug->DEMCR;
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+    cycles = usec * (SystemCoreClock / 1000000);
+
+    while (cycles > 0)
+    {
+        iniCYCCNT = DWT->CYCCNT;
+        usec = (cycles >> 32) ? UINT32_MAX : (uint32_t) cycles;
+        cycles -= usec;
+        while((DWT->CYCCNT - iniCYCCNT) < usec);
+    }
+
+    CoreDebug->DEMCR = oldDEMCR;
+}
+
+/* Wrapper function to be used by decadriver. Declared in deca_device_api.h */
+void deca_usleep(unsigned long time_us)
+{
+    usleep(time_us);
+}

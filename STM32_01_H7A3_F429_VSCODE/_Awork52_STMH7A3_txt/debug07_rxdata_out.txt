@@ -1,0 +1,789 @@
+
+数据流： mcu通过spi读取无线传入寄存器中的数据( AudioI2sTask)  -- 再通过i2s发送到1787至耳机播放
+
+
+
+=============================创建audioI2sTask任务===============================
+
+
+
+
+flow：创建audioI2sTask任务
+
+          DefaultTaskInit  --  audio_rx_helper -- audio_i2s_setup_tasks --  AudioI2sTask
+
+
+
+----------------------------------------------------------------
+
+ audio_rx_helper( *argument)
+
+    ......（忽略）
+
+    audio_i2s_setup_tasks();
+  
+
+-------------------------------
+
+
+  audio_i2s_setup_tasks( )
+ 
+      audioI2sTask.task_stack = NULL;
+      create_audio_i2s_task( AudioI2sTask,  &audioI2sTask,   AUDIO_I2S_TASK_STACK_SIZE_BYTES );
+
+ 
+-------------------------
+
+功能： 收到AUDIO_I2S_DATA_NTF消息后，把i2s_next_frame_data输出到i2s_data_buffer ，并经1787播放到耳机
+AudioI2sTask( * arg)
+ 
+                while(!(pAudioInfo = getAudioInfoPtr()))          //等待有数据过来      
+                          osDelay(5);                
+
+                audioI2sTask.Exit = 0;
+
+                while(audioI2sTask.Exit == 0)
+               
+                           osEvent evt = osSignalWait(audioI2sTask.SignalMask, osWaitForever);
+
+                           if (evt.value.signals & AUDIO_I2S_DATA_NTF)                                
+                                     audio_i2s_buffer_load_data( i2s_next_frame_data, i2s_next_frame_size);     //  i2s_next_frame_data -- i2s_data_buffer      //这里                     
+                 
+                audioI2sTask.Exit = 2;
+                while(audioI2sTask.Exit == 2)	 
+	        osDelay(1);
+	 
+ 
+------
+
+数据流：   i2s_next_frame_data -- i2s_data_buffer
+ audio_i2s_buffer_load_data(  *data_buffer,   data_size)    //参数： i2s_next_frame_data ， len
+ 
+    audio_i2s_data_padding_24to32( i2s_data_buffer + i2s_next_frame_index,    data_buffer,    data_size); 
+ 
+    if (0 == i2s_next_frame_index) 
+        i2s_next_frame_index = i2s_data_buffer_size / 2;    //或左右声道切换
+    else 
+        i2s_next_frame_index = 0;
+ 
+
+---
+
+数据流：   i2s_next_frame_data -- i2s_data_buffer
+ audio_i2s_data_padding_24to32(  *data_dest,   *data_src,   data_size)    //参数：  i2s_data_buffer  ,    i2s_next_frame_data,    len
+ 
+    for (int i = 0; i < data_size; i = i + 3)
+ 
+        data_dest[j++] = data_src[i + 1];       // Bit2
+        data_dest[j++] = data_src[i + 2];       // Bit1
+        data_dest[j++] = 0x0;                          // Bit4
+        data_dest[j++] = data_src[i];              // Bit3
+
+
+
+
+ 
+=====================rx data  out 输出到AMP之一 ========初始化I2S DMA======================
+
+
+ flow： （5b接收数据）
+              EXTI3_IRQHandler -- HAL_GPIO_EXTI_IRQHandler --HAL_GPIO_EXTI_Callback -- process_deca_irq -- dwt_isr 
+              -- audio_rx_done_cb -- audio_rx_process_rx_frame -- dwt_readrxdata -- audio_rx_data_in -- audio_buffer_fill_data 
+
+flow：   (初始化I2S DMA)
+            audio_rx_data_in --  audio_rx_process_trigger  --  audio_i2s_start  --   (AUDIO_I2S_DATA_NTF) --  AudioI2sTask 
+
+           audio_i2s_start  --  HAL_I2S_Transmit_DMA --  HAL_DMA_Start_IT --（DMA15数据传送-完成中断）-- HAL_DMA_IRQHandler  -- I2S_DMATxHalfCplt / I2S_DMATxCplt  
+            --  HAL_I2S_TxHalfCpltCallback /HAL_I2S_TxCpltCallback  --  audio_rx_data_out      
+
+   DMA15数据传送： i2s_data_buffer -- ( DMA1_Stream5)->M0AR -- ( DMA1_Stream5)->PAR -- SPI1->TXDR   (IIS输出到功放的寄存器)
+ 
+
+数据流： psAudioInfo->data_buffer->data    --   data_buffer   --   i2s_next_frame_data  --   hi2s->pTxBuffPtr      
+
+---------------------------------------------------------------------------
+ 
+ 
+数据流：  rx_buffer  -- psAudioInfo->data_buffer
+audio_rx_data_in()
+        
+       ...... (复习，忽略)
+
+        if (rx_streaming_started)
+                 if (rx_msg_sn == new_msg_sn)        
+                        audio_buffer_fill_data(rx_audio_data, data_size);         //rx_buffer --  psAudioInfo->data_buffer.data
+
+          if (!rx_streaming_started)
+                       rx_streaming_started = TRUE;
+                       audio_rx_process_trigger();               // 把播放数据存放到i2s_next_frame_data ,再 执行audio_i2s_task
+
+
+-------------------
+
+功能: 把播放数据存放到i2s_next_frame_data ,再 执行audio_i2s_task，启动I2S的dma发送
+数据流： psAudioInfo->data_buffer->data  -- data_buffer --  i2s_next_frame_data
+audio_rx_process_trigger()
+ 
+        if (rx_streaming_started)
+ 
+                if (0 == audio_buffer_read_check(AUDIO_I2S_DATA_SIZE))
+                 
+                        * info = getAudioInfoPtr();
+
+                        *data_buffer = info->data_buffer->data;                                                
+                        current_rd_ptr = info->data_buffer->rd_ptr;
+
+                        audio_i2s_start(data_buffer + current_rd_ptr, AUDIO_I2S_DATA_SIZE);       //psAudioInfo  --  i2s_next_frame_data ,再 执行audio_i2s_task，启动I2S的dma发送
+
+                        current_rd_ptr = (current_rd_ptr + AUDIO_I2S_DATA_SIZE) % info->data_buffer->size;
+                        audio_buffer_update_rd_ptr(current_rd_ptr);
+ 
+ 
+--------------
+
+功能： 把接收的音乐数据转存到i2s_next_frame_data ，发AUDIO_I2S_DATA_NTF消息给I2s task，启动I2S的dma发送
+数据流：  psAudioInfo->data_buffer->data  --  i2s_next_frame_data 
+ audio_i2s_start(   *data_buffer,    data_size)
+ 
+                if (dma_status == AUDIO_I2S_DMA_OFF)      //运行下面
+ 
+                                memset(i2s_data_buffer, 0, all );
+
+                                i2s_next_frame_index = AUDIO_I2S_BUFFER_SIZE / 2;
+ 
+                                i2s_next_frame_data = data_buffer;       //data_buffer  --  i2s_next_frame_data 
+                                i2s_next_frame_size = data_size;
+                                audio_i2s_task_notify(AUDIO_I2S_DATA_NTF);   //发送AUDIO_I2S_DATA_NTF消息给I2s task
+
+                             //开启 I2S 传输
+                                // On other STM platform, the data length here means the number of 16-bit data length.
+                                HAL_I2S_Transmit_DMA(&hi2s,    i2s_data_buffer, sizeof(i2s_data_buffer) / 2);
+ 
+                                dma_status = AUDIO_I2S_DMA_STARTED;
+         
+                else         
+                                audio_i2s_update_buffer(data_buffer, data_size);
+                                audio_i2s_resume();
+
+
+---------------------
+
+
+//参数： &hi2s,    i2s_data_buffer,  len 
+数据流：建立对应关系  i2s_data_buffer  --   hi2s->pTxBuffPtr   
+HAL_I2S_Transmit_DMA(  *hi2s,   *pData,    Size)
+ 
+        /* Set state and reset error code */
+        hi2s->State                 = HAL_I2S_STATE_BUSY_TX;
+        hi2s->ErrorCode         = HAL_I2S_ERROR_NONE;
+        hi2s->pTxBuffPtr        = pData;                                    // i2s_data_buffer --   hi2s->pTxBuffPtr  
+        hi2s->TxXferSize        = Size;
+        hi2s->TxXferCount = Size;
+
+        /* Init field not used in handle to zero */
+        hi2s->pRxBuffPtr        = NULL;
+        hi2s->RxXferSize        =0;
+        hi2s->RxXferCount =0;
+ 
+        hi2s->hdmatx->XferHalfCpltCallback = I2S_DMATxHalfCplt;      //half 中断服务程序
+        hi2s->hdmatx->XferCpltCallback = I2S_DMATxCplt;                    //complete 中断服务程序
+ 
+        HAL_DMA_Start_IT(hdma_i2s_tx,  hi2s->pTxBuffPtr,    SPI1->TXDR,    hi2s->TxXferCount)；  //配置DMA的原始地址和目标地址， 使能DMA中断
+
+        SET_BIT(SPI1->CFG1, SPI_CFG1_TXDMAEN);    //CFG1.15=1, 使能 Tx DMA  
+               
+        __HAL_I2S_ENABLE(hi2s);    //CR1.0=1, 使能串行外设    --待理解
+
+        SET_BIT(SPI1->CR1, SPI_CR1_CSTART); //CR1.9=1, 开启master发送
+ 
+ 
+---------------
+
+
+//配置DMA的原始地址和目标地址， 使能DMA中断
+参数：hdma_i2s_tx,  hi2s->pTxBuffPtr,    SPI1->TXDR,    hi2s->TxXferCount
+数据流：   hi2s->pTxBuffPtr -- SPI1->TDR
+HAL_DMA_Start_IT(  *hdma, SrcAddress,   DstAddress, DataLength)
+
+      if(HAL_DMA_STATE_READY == hdma->State)
+        
+          __HAL_DMA_DISABLE(hdma);
+                     DMA1_Stream5->CR &=  ~DMA_SxCR_EN;    //CR.0=0
+
+          //设置dma的数据长度，非双缓冲，起始地址，目标地址，清除中断状态
+          DMA_SetConfig(hdma, SrcAddress, DstAddress, DataLength);
+
+          if(IS_DMA_STREAM_INSTANCE( DMA1_Stream5 ) != 0 )  /* DMA1 or DMA2 instance */
+      
+              //使能中断
+             // MODIFY_REG( ( hdma->Instance)->CR, (DMA_IT_TC | DMA_IT_TE | DMA_IT_DME | DMA_IT_HT), (DMA_IT_TC | DMA_IT_TE | DMA_IT_DME));
+                             DMA1_Stream5->CR &= ~(DMA_IT_TC | DMA_IT_TE | DMA_IT_DME | DMA_IT_HT);      //关中断： 传送一半
+                             DMA1_Stream5->CR |=  DMA_IT_TC | DMA_IT_TE | DMA_IT_DME;                                     //开中断： 传送完成，传送错误，直接模式错误
+
+              if(hdma->XferHalfCpltCallback != NULL)
+                    DMA1_Stream5->CR  |= DMA_IT_HT;                //开中断： 传送一半      
+ 
+
+---
+
+设置dma的数据长度，是否双缓冲，起始地址，目标地址，清除中断状态
+参数：hdma_i2s_tx,  hi2s->pTxBuffPtr,    SPI1->TXDR,    hi2s->TxXferCount
+数据流：   hi2s->pTxBuffPtr -- SPI1->TDR
+DMA_SetConfig(  *hdma,  SrcAddress,   DstAddress,   DataLength)   //TX分支   //待移植 from uart
+ 
+    *regs_dma    =  hdma->StreamBaseAddress;     //指向 LISR and LIFCR
+
+    if(IS_DMA_DMAMUX_ALL_INSTANCE(hdma->Instance) != 0U)   
+
+        hdma->DMAmuxChannelStatus->CFR = hdma->DMAmuxChannelStatusMask;   //或DMAMUX_CFR=Mask
+
+        if(hdma->DMAmuxRequestGen != 0U) 
+              hdma->DMAmuxRequestGenStatus->RGCFR = hdma->DMAmuxRequestGenStatusMask;     //或DMAMUX_CFR=Mask     
+ 
+    if(IS_DMA_STREAM_INSTANCE(DMA1_Stream5) != 0U)    // DMA1 or DMA2 instance 
+    
+        //清中断状态标志
+        regs_dma->IFCR = 0x3FUL << (hdma->StreamIndex & 0x1FU);   //0x3f<<22  ， DMA_LIFCR.27-22=111111
+
+        DMA1_Stream5->CR &=  ~DMA_SxCR_DBM;     //DMA_SxCR.dbm=0， 非双缓冲模式
+        DMA1_Stream5->NDTR = DataLength;                 //设置本次传输的数据长度
+
+        if((hdma->Init.Direction) == DMA_MEMORY_TO_PERIPH)   //uart rx？
+               ......(忽略)
+ 
+        else     //uart tx？
+ 
+            DMA1_Stream5->PAR = SrcAddress;        // DMA_SxPAR = huart->pTxBuffPtr？
+            DMA1_Stream5->M0AR = DstAddress;     // DMA_SxM0AR = UART5->TDR？
+ 
+
+
+------------------
+
+功能：调用hdma->XferM1HalfCpltCallback，即I2S_DMATxHalfCplt
+HAL_DMA_IRQHandler( *hdma )    //播放音乐时half和complete都有中断
+ 
+        uint32_t tmpisr_dma, tmpisr_bdma;
+        uint32_t ccr_reg;
+        __IO uint32_t count = 0U;
+        uint32_t timeout = SystemCoreClock / 9600U;
+ 
+        /* calculate DMA base and stream number */
+        DMA_Base_Registers    *regs_dma    =  hdma->StreamBaseAddress;
+ 
+        tmpisr_dma  = regs_dma->ISR; 
+
+        if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0U)        /* DMA1 or DMA2 instance */        
+
+                 /* Half Transfer Complete Interrupt management ******************************/
+                if ((tmpisr_dma & (DMA_FLAG_HTIF0_4 << (hdma->StreamIndex & 0x1FU))) != 0U)
+                
+                        if(__HAL_DMA_GET_IT_SOURCE(hdma, DMA_IT_HT) != 0U)
+                        
+                                /* Clear the half transfer complete flag */
+                                regs_dma->IFCR = DMA_FLAG_HTIF0_4 << (hdma->StreamIndex & 0x1FU);
+
+                                /* Multi_Buffering mode enabled */
+                                if(((( hdma->Instance)->CR) & (DMA_SxCR_DBM)) != 0U)      //如果DMA_SxCR.18=1 ，则是双缓冲，继续下面  
+                                
+                                        /* Current memory buffer used is Memory 0 */
+                                        if((( hdma->Instance)->CR & DMA_SxCR_CT) == 0U)
+                                        
+                                                if(hdma->XferHalfCpltCallback != NULL) 
+                                                            hdma->XferHalfCpltCallback(hdma);         //no
+     
+                                        else
+                                
+                                                if(hdma->XferM1HalfCpltCallback != NULL)
+                                    
+                                                            /* Half transfer callback */
+                                                            hdma->XferM1HalfCpltCallback(hdma);         //ok
+
+-----------------
+
+功能：调用hdma->XferCpltCallback，即I2S_DMATxCplt
+HAL_DMA_IRQHandler( *hdma )     //播放音乐时half和complete都有中断
+
+                /* Transfer Complete Interrupt management ***********************************/
+                if ((tmpisr_dma & (DMA_FLAG_TCIF0_4 << (hdma->StreamIndex & 0x1FU))) != 0U)
+                {
+                        if(__HAL_DMA_GET_IT_SOURCE(hdma, DMA_IT_TC) != 0U)
+                        {
+                                /* Clear the transfer complete flag */
+                                regs_dma->IFCR = DMA_FLAG_TCIF0_4 << (hdma->StreamIndex & 0x1FU);
+
+                                if(HAL_DMA_STATE_ABORT == hdma->State)
+                                {
+                                        /* Disable all the transfer interrupts */
+                                        ((DMA_Stream_TypeDef         *)hdma->Instance)->CR        &= ~(DMA_IT_TC | DMA_IT_TE | DMA_IT_DME);
+                                        ((DMA_Stream_TypeDef         *)hdma->Instance)->FCR &= ~(DMA_IT_FE);
+
+                                        if((hdma->XferHalfCpltCallback != NULL) || (hdma->XferM1HalfCpltCallback != NULL))
+                                        {
+                                                (hdma->Instance)->CR        &= ~(DMA_IT_HT);
+                                        }
+
+                                        /* Clear all interrupt flags at correct offset within the register */
+                                        regs_dma->IFCR = 0x3FUL << (hdma->StreamIndex & 0x1FU);
+
+                                        /* Change the DMA state */
+                                        hdma->State = HAL_DMA_STATE_READY;
+
+                                        /* Process Unlocked */
+                                        __HAL_UNLOCK(hdma);
+
+                                        if(hdma->XferAbortCallback != NULL)
+                                        {
+                                                hdma->XferAbortCallback(hdma);
+                                        }
+                                        return;
+                                }
+
+                                if((((hdma->Instance)->CR) &    (DMA_SxCR_DBM)) != 0U)
+                                {
+                                        /* Current memory buffer used is Memory 0 */
+                                        if(((hdma->Instance)->CR & DMA_SxCR_CT) == 0U)
+                                        {
+                                                if(hdma->XferM1CpltCallback != NULL)
+                                                {
+                                                        /* Transfer complete Callback for memory1 */
+                                                        hdma->XferM1CpltCallback(hdma);
+                                                }
+                                        }
+                                        /* Current memory buffer used is Memory 1 */
+                                        else
+                                        {
+                                                if(hdma->XferCpltCallback != NULL)
+                                                {
+                                                        /* Transfer complete Callback for memory0 */
+                            
+                                                        hdma->XferCpltCallback(hdma);    //no
+                                                }
+                                        }
+                                }
+                                /* Disable the transfer complete interrupt if the DMA mode is not CIRCULAR */
+                                else
+                                {
+                                        if(((hdma->Instance)->CR & DMA_SxCR_CIRC) == 0U)
+                                        {
+                                                /* Disable the transfer complete interrupt */
+                                                ( hdma->Instance)->CR        &= ~(DMA_IT_TC);
+
+                                                /* Change the DMA state */
+                                                hdma->State = HAL_DMA_STATE_READY;
+
+                                                /* Process Unlocked */
+                                                __HAL_UNLOCK(hdma);
+                                        }
+
+                                        if(hdma->XferCpltCallback != NULL)
+                                        {
+                                                /* Transfer complete callback */
+                         
+                                                hdma->XferCpltCallback(hdma);     //这里ok
+                                        }
+                                }
+                        }
+                }
+ 
+-----------------------------
+
+参数： hdma_i2s_tx
+ I2S_DMATxCplt(  *hdma )
+    
+          *hi2s =    hdma->Parent;  //= hi2s
+ 
+        if (hdma->Init.Mode == DMA_NORMAL) 
+ 
+                    CLEAR_BIT(hi2s->Instance->CFG1, SPI_CFG1_TXDMAEN);     //不使能 Tx DMA Request
+
+                    hi2s->TxXferCount =0;
+                    hi2s->State = HAL_I2S_STATE_READY; 
+ 
+        //HAL_I2S_TxCpltCallback(hi2s);
+                audio_rx_data_out();
+ 
+
+---------------------------
+
+
+参数： hdma_i2s_tx
+ I2S_DMATxHalfCplt( *hdma)
+ 
+     *hi2s =    hdma->Parent;  //= hi2s
+ 
+      //HAL_I2S_TxHalfCpltCallback(hi2s);
+                audio_rx_data_out();
+ 
+  
+
+
+
+ 
+===============================rx data    out 输出到AMP（I2S）之二 ========输出到AMP=============================
+
+
+ flow： （5b接收数据）
+              EXTI3_IRQHandler -- HAL_GPIO_EXTI_IRQHandler --HAL_GPIO_EXTI_Callback -- process_deca_irq -- dwt_isr 
+              -- audio_rx_done_cb -- audio_rx_process_rx_frame -- dwt_readrxdata -- audio_rx_data_in -- audio_buffer_fill_data 
+
+flow：   (初始化I2S DMA)
+           audio_rx_data_in --  audio_rx_process_trigger  --  audio_i2s_start  --   (AUDIO_I2S_DATA_NTF) --  AudioI2sTask 
+
+           audio_i2s_start  --  HAL_I2S_Transmit_DMA -- HAL_DMA_Start_IT -- （DMA15数据传送-完成中断）-- HAL_DMA_IRQHandler  -- I2S_DMATxHalfCplt / I2S_DMATxCplt  
+            --  HAL_I2S_TxHalfCpltCallback /HAL_I2S_TxCpltCallback  --  audio_rx_data_out      
+
+   DMA15数据传送： i2s_data_buffer -- ( DMA1_Stream5)->M0AR -- ( DMA1_Stream5)->PAR -- SPI1->TXDR   (IIS输出到功放的寄存器)
+
+数据流： psAudioInfo->data_buffer->data    --   data_buffer   --   i2s_next_frame_data  --   hi2s->pTxBuffPtr      
+
+
+
+flow：(输出到AMP)
+
+             audio_rx_data_out   --   audio_i2s_update_buffer -- (AUDIO_I2S_DATA_NTF) -- AudioI2sTask -- audio_i2s_buffer_load_data --  audio_i2s_data_padding_24to32  
+             -- （DMA15数据传送-完成中断）-- HAL_DMA_IRQHandler  --  x  -- audio_rx_data_out   
+
+数据流：  psAudioInfo.data_buffer --  i2s_next_frame_data --  i2s_data_buffer  
+
+   DMA15数据传送： i2s_data_buffer -- ( DMA1_Stream5)->M0AR -- ( DMA1_Stream5)->PAR -- SPI1->TXDR   (IIS输出到功放的寄存器)
+
+
+--------------------------------------------------------------------------------------------------------------
+
+
+//数据流：psAudioInfo.data_buffer->data;  --  data_buffer（临时参数）
+audio_rx_data_out()
+ 
+        audio_data_output_Call++;
+
+        if (rx_streaming_started) 
+ 
+                if (0 == audio_buffer_read_check(AUDIO_I2S_DATA_SIZE))    //执行下面
+
+                        * info = getAudioInfoPtr();
+                       *data_buffer = info->data_buffer->data;
+                       current_rd_ptr = info->data_buffer->rd_ptr;
+
+                        audio_i2s_update_buffer(data_buffer + current_rd_ptr, AUDIO_I2S_DATA_SIZE);
+
+                        current_rd_ptr = (current_rd_ptr + AUDIO_I2S_DATA_SIZE) % info->data_buffer->size;
+                        audio_buffer_update_rd_ptr(current_rd_ptr);
+
+                        audio_rx_sample_resync();                                                 //或IIS时钟修正
+
+                else
+
+                        memset(i2s_alt_buffer, 0x0, sizeof(i2s_alt_buffer));
+                        audio_i2s_update_buffer(i2s_alt_buffer, sizeof(i2s_alt_buffer));
+                        audio_buffer_reset();
+                        rx_streaming_started = FALSE;
+                        rx_msg_sn = 0; 
+ 
+                        audio_data_output_error++; 
+ 
+        else
+                audio_i2s_pause();
+ 
+ 
+ ---------------------
+
+
+//数据流：psAudioInfo.data_buffer  --   i2s_next_frame_data
+audio_i2s_update_buffer(  *data_buffer,  data_size)
+ 
+    i2s_next_frame_data = data_buffer;
+    i2s_next_frame_size = data_size;
+
+    audio_i2s_task_notify(AUDIO_I2S_DATA_NTF);
+
+ 
+----------
+
+//数据流：取出 i2s_next_frame_data  做参数 
+//参数：AUDIO_I2S_DATA_NTF
+ AudioI2sTask( * arg) 
+ 
+    audio_info_t     *pAudioInfo;
+    while(!(pAudioInfo = getAudioInfoPtr())) 
+        osDelay(5); 
+
+    audioI2sTask.Exit = 0;
+
+    while(audioI2sTask.Exit == 0)
+ 
+        osEvent evt = osSignalWait(audioI2sTask.SignalMask, osWaitForever);
+
+        if (evt.value.signals & AUDIO_I2S_DATA_NTF)
+  
+              audio_i2s_buffer_load_data(i2s_next_frame_data, i2s_next_frame_size);   //这里       i2s_next_frame_data ---  i2s_data_buffer 
+ 
+    audioI2sTask.Exit = 2;
+    while(audioI2sTask.Exit == 2)
+ 
+	 osDelay(1);	 
+
+
+--------------
+ 
+//数据流：   i2s_next_frame_data ---  i2s_data_buffer 
+
+audio_i2s_buffer_load_data(   *data_buffer,   data_size)
+ 
+    audio_i2s_data_padding_24to32(i2s_data_buffer + i2s_next_frame_index, data_buffer,  data_size);   
+ 
+    if (0 == i2s_next_frame_index)
+ 
+          i2s_next_frame_index = i2s_data_buffer_size / 2; 
+          i2s_next_frame_index = 0;
+ 
+
+---
+
+//数据流：   i2s_next_frame_data ---  i2s_data_buffer 
+ audio_i2s_data_padding_24to32( *data_dest,    *data_src,   data_size)
+ 
+    for (int i = 0; i < data_size; i = i + 3)
+ 
+        data_dest[j++] = data_src[i + 1];             // Bit2
+        data_dest[j++] = data_src[i + 2];             // Bit1
+        data_dest[j++] = 0x0;                                // Bit4
+        data_dest[j++] = data_src[i];                    // Bit3
+
+ 
+
+
+
+=========================================参考====================================
+ 
+
+
+//参数： &hi2s,    i2s_data_buffer,  len 
+数据流：建立对应关系  i2s_data_buffer  --   hi2s->pTxBuffPtr   
+HAL_I2S_Transmit_DMA(  *hi2s,   *pData,    Size)
+ 
+ 
+        hi2s->State                 = HAL_I2S_STATE_BUSY_TX;
+        hi2s->ErrorCode         = HAL_I2S_ERROR_NONE;
+        hi2s->pTxBuffPtr        = pData;                                    // i2s_data_buffer --   hi2s->pTxBuffPtr  
+        hi2s->TxXferSize        = Size;
+        hi2s->TxXferCount = Size;
+
+        /* Init field not used in handle to zero */
+        hi2s->pRxBuffPtr        = NULL;
+        hi2s->RxXferSize        =0;
+        hi2s->RxXferCount =0;
+ 
+        hi2s->hdmatx->XferHalfCpltCallback = I2S_DMATxHalfCplt;      //half 中断服务程序
+        hi2s->hdmatx->XferCpltCallback = I2S_DMATxCplt;                    //complete 中断服务程序
+        hi2s->hdmatx->XferErrorCallback = I2S_DMAError;
+
+
+        HAL_DMA_Start_IT(hdma_i2s_tx,  hi2s->pTxBuffPtr,    SPI1->TXDR,    hi2s->TxXferCount)；  //配置DMA的原始地址和目标地址， 使能DMA中断
+
+        SET_BIT(SPI1->CFG1, SPI_CFG1_TXDMAEN);    //CFG1.15=1, 使能 Tx DMA  
+               
+        __HAL_I2S_ENABLE(hi2s);                         //CR1.0=1, 使能串行外设    --待理解
+
+        SET_BIT(SPI1->CR1, SPI_CR1_CSTART);   //CR1.9=1, 开启master发送
+
+
+ ------
+
+//数据流： 使用hi2s->pTxBuffPtr  
+//参数： hi2s->hdmatx,  .pTxBuffPtr,  .Instance->TXDR,  len
+ HAL_DMA_Start_IT( *hdma,   SrcAddress,   DstAddress,   DataLength)
+  
+    __HAL_LOCK(hdma);
+
+    if(HAL_DMA_STATE_READY == hdma->State)
+ 
+        hdma->State = HAL_DMA_STATE_BUSY;
+        hdma->ErrorCode = HAL_DMA_ERROR_NONE;
+        __HAL_DMA_DISABLE(hdma);
+
+        /* Configure the source, destination address and the data length */
+        DMA_SetConfig(hdma, SrcAddress, DstAddress, DataLength);    //使用hi2s->pTxBuffPtr  
+
+        if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0U) /* DMA1 or DMA2 instance */
+        
+            //使能常用的中断
+            MODIFY_REG(( hdma->Instance)->CR, (DMA_IT_TC | DMA_IT_TE | DMA_IT_DME | DMA_IT_HT), (DMA_IT_TC | DMA_IT_TE | DMA_IT_DME));
+
+            if(hdma->XferHalfCpltCallback != NULL)
+                /* Enable Half Transfer IT if corresponding Callback is set */
+                (hdma->Instance)->CR    |= DMA_IT_HT;
+
+        
+        else   /* BDMA channel */
+        
+           （忽略） 
+
+
+        if(IS_DMA_DMAMUX_ALL_INSTANCE(hdma->Instance) != 0U) /* No DMAMUX available for BDMA1 */
+        
+            /* Check if DMAMUX Synchronization is enabled */
+            if((hdma->DMAmuxChannel->CCR & DMAMUX_CxCR_SE) != 0U)
+            
+                /* Enable DMAMUX sync overrun IT*/
+                hdma->DMAmuxChannel->CCR |= DMAMUX_CxCR_SOIE;
+            
+            if(hdma->DMAmuxRequestGen != 0U)
+            
+                /* if using DMAMUX request generator, enable the DMAMUX request generator overrun IT*/
+                /* enable the request gen overrun IT */
+                hdma->DMAmuxRequestGen->RGCR |= DMAMUX_RGxCR_OIE;                   
+
+        /* Enable the Peripheral */
+        __HAL_DMA_ENABLE(hdma);
+  
+ 
+------
+
+//数据流： hi2s->pTxBuffPtr  连接到M0AR  --  hi2s->Instance->TXDR  连接到PAR 
+//参数： hi2s->hdmatx,  .pTxBuffPtr,  .Instance->TXDR,  len
+DMA_SetConfig( *hdma,     SrcAddress,     DstAddress,    DataLength)
+ 
+    /* calculate DMA base and stream number */
+    DMA_Base_Registers    *regs_dma    = hdma->StreamBaseAddress;
+    BDMA_Base_Registers *regs_bdma =  hdma->StreamBaseAddress;
+
+    if(IS_DMA_DMAMUX_ALL_INSTANCE(hdma->Instance) != 0U) /* No DMAMUX available for BDMA1 */
+ 
+        /* Clear the DMAMUX synchro overrun flag */
+        hdma->DMAmuxChannelStatus->CFR = hdma->DMAmuxChannelStatusMask;
+
+        if(hdma->DMAmuxRequestGen != 0U)
+        
+            /* Clear the DMAMUX request generator overrun flag */
+            hdma->DMAmuxRequestGenStatus->RGCFR = hdma->DMAmuxRequestGenStatusMask;        
+ 
+
+    if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0U) /* DMA1 or DMA2 instance */
+ 
+        /* Clear all interrupt flags at correct offset within the register */
+        regs_dma->IFCR = 0x3FUL << (hdma->StreamIndex & 0x1FU);
+
+        /* Clear DBM bit */
+        ( hdma->Instance)->CR &= ~DMA_SxCR_DBM ;
+
+        /* Configure DMA Stream data length */
+        ( hdma->Instance)->NDTR = DataLength;
+
+        /* Peripheral to Memory */
+        if((hdma->Init.Direction) == DMA_MEMORY_TO_PERIPH)    //应这里，从mcu到功放喇叭
+        
+            /* Configure DMA Stream destination address */
+            ( hdma->Instance)->PAR = DstAddress;                //把hi2s->Instance->TXDR  连接到PAR   （TXDR或接功放）
+
+            /* Configure DMA Stream source address */
+            (hdma->Instance)->M0AR = SrcAddress;              //把hi2s->pTxBuffPtr  连接到M0AR
+         
+        /* Memory to Peripheral */
+        else
+        
+            /* Configure DMA Stream source address */
+            ( hdma->Instance)->PAR = SrcAddress;
+
+            /* Configure DMA Stream destination address */
+            ( hdma->Instance)->M0AR = DstAddress;
+        
+ 
+    else if(IS_BDMA_CHANNEL_INSTANCE(hdma->Instance) != 0U) /* BDMA instance(s) */
+   
+        （忽略）
+ 
+ 
+
+
+
+
+static void audio_i2s_buffer_load_data(uint8_t *data_buffer, uint16_t data_size)
+{
+#if AUDIO_RESOLUTION_BYTE == 3
+    audio_i2s_data_padding_24to32(i2s_data_buffer + i2s_next_frame_index, data_buffer, data_size);
+#else
+    memcpy(i2s_data_buffer + i2s_next_frame_index, data_buffer, data_size);
+#endif
+
+    /* Update the next data index for I2S DMA buffer, switch in DMA interrupt handling */
+    if (0 == i2s_next_frame_index)
+    {
+        i2s_next_frame_index = i2s_data_buffer_size / 2;
+    }
+    else
+    {
+        i2s_next_frame_index = 0;
+    }
+}
+
+
+
+int audio_i2s_task_notify(int32_t signal)
+{
+    if(audioI2sTask.Handle)
+    {
+        //Sends the Signal to the application level via OS kernel.
+        //This will add a small delay of few us, but
+        //this method make sense from a program structure point of view.
+        if (osSignalSet(audioI2sTask.Handle, signal) == 0x80000000)
+        {
+            error_handler(1, _ERR_Signal_Bad);
+        }
+    }
+    return 0;
+}
+
+
+
+---
+
+
+int audio_buffer_fetch_data(uint8_t *data_buffer, uint16_t data_size)     ？？？待验证
+{
+        if (0 == audio_buffer_read_check(data_size))
+        {
+                if (psAudioInfo->data_buffer->rd_ptr + data_size > psAudioInfo->data_buffer->size)
+                {
+                        uint16_t tail_size = psAudioInfo->data_buffer->size - psAudioInfo->data_buffer->rd_ptr;
+                        uint16_t front_size = data_size - tail_size;
+                        memcpy(data_buffer, psAudioInfo->data_buffer->data + psAudioInfo->data_buffer->rd_ptr, tail_size);
+                        memcpy(data_buffer+tail_size, psAudioInfo->data_buffer->data, front_size);
+                }
+                else
+                {
+                        memcpy(data_buffer, psAudioInfo->data_buffer->data + psAudioInfo->data_buffer->rd_ptr, data_size);
+                }
+                psAudioInfo->data_buffer->rd_ptr = (psAudioInfo->data_buffer->rd_ptr + data_size) % psAudioInfo->data_buffer->size;
+                return 0;
+        }
+        return -1;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

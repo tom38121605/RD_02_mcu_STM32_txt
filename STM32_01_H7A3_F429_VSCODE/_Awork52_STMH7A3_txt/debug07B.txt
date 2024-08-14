@@ -1,0 +1,227 @@
+
+#include "usb_uart_tx.h"  //--add
+copy_tx_msg((uint8_t*)"pout2\r\n", 7); 
+
+  printf("status_cb: Connected\n");
+
+
+
+
+static uint8_t i2s_data_buffer[AUDIO_I2S_BUFFER_SIZE] = {0};    //AUDIO_I2S_BUFFER_SIZE=f(1023)
+
+
+============================
+
+USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
+{
+  /* Init USB Ip. */
+  if (pdev->id == DEVICE_HS) {
+  /* Link the driver to the stack. */
+  hpcd_USB_OTG_HS.pData = pdev;
+  pdev->pData = &hpcd_USB_OTG_HS;
+
+  hpcd_USB_OTG_HS.Instance = USB_OTG_HS;
+  hpcd_USB_OTG_HS.Init.dev_endpoints = 9;
+  hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_FULL;
+  hpcd_USB_OTG_HS.Init.dma_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_EMBEDDED_PHY;
+  hpcd_USB_OTG_HS.Init.Sof_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.low_power_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.lpm_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.use_dedicated_ep1 = DISABLE;
+  hpcd_USB_OTG_HS.Init.use_external_vbus = DISABLE;
+  if (HAL_PCD_Init(&hpcd_USB_OTG_HS) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+===========================
+
+
+In file included from ../../../../../SDK_BSP/ST/Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_core.h:29,
+                 from ../../../../../SDK_BSP/ST/Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_core.c:21:
+../../../../../Src/Boards/Src/AUDIO-H7A3RI/FreeRTOS/usbd_conf.h:59:10: fatal error: stm32f4xx.h: No such file or directory
+   59 | #include "stm32f4xx.h"
+
+------
+
+
+ struct command_s
+ {
+     const char     *name;      /**< Command name string */
+     const uint32_t mode;       /**< allowed execution operation mode */
+     REG_FN         ((*fn));        /**< function() */
+     const char     *cmnt;
+ };
+
+
+struct app_definition_s
+{
+    char          *app_name;
+    mode_e    app_mode;
+    void  (*helper)   (void const *argument);          //函数
+    void (*terminate)  (void);                                      //函数
+    usb_data_e (*on_rx)    (uint8_t *pBuf , uint16_t len, uint16_t *read_offset,uint16_t cyclic_size);        //函数
+    void (*command_parser)   (usb_data_e res, char * text);                                                                          //函数
+    const struct command_s *sub_command;
+};
+typedef struct app_definition_s app_definition_t;
+
+
+#define   DEFAULT_APP      helpers_app_audio_rx
+
+const app_definition_t helpers_app_audio_rx[] __attribute__((section(".known_apps"))) = {
+    {"AUDIO_RX", mAPP, audio_rx_helper, audio_rx_terminate, waitForCommand, command_parser, &known_commands_audio_rx}};
+
+
+#define         DEFAULT_APP           helpers_app_audio_rx
+static const app_definition_t *default_app __attribute__((section(".rconfig"))) = DEFAULT_APP;
+
+
+
+--------------------------------------------------------
+
+typedef struct
+{
+  __IO uint32_t CR1;           /*!< SPI/I2S Control register 1,                      Address offset: 0x00 */
+  __IO uint32_t CR2;           /*!< SPI Control register 2,                          Address offset: 0x04 */
+  __IO uint32_t CFG1;          /*!< SPI Configuration register 1,                    Address offset: 0x08 */
+  __IO uint32_t CFG2;          /*!< SPI Configuration register 2,                    Address offset: 0x0C */
+  __IO uint32_t IER;           /*!< SPI/I2S Interrupt Enable register,               Address offset: 0x10 */
+  __IO uint32_t SR;            /*!< SPI/I2S Status register,                         Address offset: 0x14 */
+  __IO uint32_t IFCR;          /*!< SPI/I2S Interrupt/Status flags clear register,   Address offset: 0x18 */
+  uint32_t      RESERVED0;     /*!< Reserved, 0x1C                                                        */
+  __IO uint32_t TXDR;          /*!< SPI/I2S Transmit data register,                  Address offset: 0x20 */
+  uint32_t      RESERVED1[3];  /*!< Reserved, 0x24-0x2C                                                   */
+  __IO uint32_t RXDR;          /*!< SPI/I2S Receive data register,                   Address offset: 0x30 */
+  uint32_t      RESERVED2[3];  /*!< Reserved, 0x34-0x3C                                                   */
+  __IO uint32_t CRCPOLY;       /*!< SPI CRC Polynomial register,                     Address offset: 0x40 */
+  __IO uint32_t TXCRC;         /*!< SPI Transmitter CRC register,                    Address offset: 0x44 */
+  __IO uint32_t RXCRC;         /*!< SPI Receiver CRC register,                       Address offset: 0x48 */
+  __IO uint32_t UDRDR;         /*!< SPI Underrun data register,                      Address offset: 0x4C */
+  __IO uint32_t I2SCFGR;       /*!< I2S Configuration register,                      Address offset: 0x50 */
+
+} SPI_TypeDef;
+
+
+
+typedef struct __DMA_HandleTypeDef
+{
+  void                            *Instance;                                                        /*!< Register base address                         */
+
+  DMA_InitTypeDef                 Init;                                                             /*!< DMA communication parameters                  */
+
+  HAL_LockTypeDef                 Lock;                                                             /*!< DMA locking object                            */
+
+  __IO HAL_DMA_StateTypeDef       State;                                                            /*!< DMA transfer state                            */
+
+  void                            *Parent;                                                          /*!< Parent object state                           */
+
+  void                            (* XferCpltCallback)( struct __DMA_HandleTypeDef * hdma);         /*!< DMA transfer complete callback                */
+
+  void                            (* XferHalfCpltCallback)( struct __DMA_HandleTypeDef * hdma);     /*!< DMA Half transfer complete callback           */
+
+  void                            (* XferM1CpltCallback)( struct __DMA_HandleTypeDef * hdma);       /*!< DMA transfer complete Memory1 callback        */
+
+  void                            (* XferM1HalfCpltCallback)( struct __DMA_HandleTypeDef * hdma);   /*!< DMA transfer Half complete Memory1 callback   */
+
+  void                            (* XferErrorCallback)( struct __DMA_HandleTypeDef * hdma);        /*!< DMA transfer error callback                   */
+
+  void                            (* XferAbortCallback)( struct __DMA_HandleTypeDef * hdma);        /*!< DMA transfer Abort callback                   */
+
+ __IO uint32_t                    ErrorCode;                                                        /*!< DMA Error code                                */
+
+ uint32_t                         StreamBaseAddress;                                                /*!< DMA Stream Base Address                       */
+
+ uint32_t                         StreamIndex;                                                      /*!< DMA Stream Index                              */
+
+ DMAMUX_Channel_TypeDef           *DMAmuxChannel;                                                   /*!< DMAMUX Channel Base Address                   */
+
+ DMAMUX_ChannelStatus_TypeDef     *DMAmuxChannelStatus;                                             /*!< DMAMUX Channels Status Base Address           */
+
+ uint32_t                         DMAmuxChannelStatusMask;                                          /*!< DMAMUX Channel Status Mask                    */
+
+
+ DMAMUX_RequestGen_TypeDef        *DMAmuxRequestGen;                                                /*!< DMAMUX request generator Base Address         */
+
+ DMAMUX_RequestGenStatus_TypeDef  *DMAmuxRequestGenStatus;                                          /*!< DMAMUX request generator Status Address       */
+
+ uint32_t                         DMAmuxRequestGenStatusMask;                                       /*!< DMAMUX request generator Status mask          */
+
+}DMA_HandleTypeDef;
+
+
+
+
+const app_definition_t helpers_app_audio_rx[] __attribute__((section(".known_apps"))) = {
+    {"AUDIO_RX", mAPP, audio_rx_helper, audio_rx_terminate, waitForCommand, command_parser, &known_commands_audio_rx}};
+
+
+REG_FN(f_audio_rx)
+{
+    app_definition_t *app_ptr = (app_definition_t *)&helpers_app_audio_rx[0];
+    EventManagerRegisterApp((void *)&app_ptr);
+
+    return (CMD_FN_RET_OK);
+}
+
+====================================
+
+struct audio_info_s
+{
+  audio_data_circular_buffer_t           *data_buffer;
+  uwb_medium_access_t                     *access_buffer;
+
+  uint16_t                                                 next_access_index;
+  uint16_t                                                 last_access_index;
+  uint16_t                                                 ms_audio_sample_size;
+  uint16_t                                                 package_size;
+};
+
+typedef struct        audio_info_s       audio_info_t;
+
+
+static   audio_info_t     audioInfo = {
+NULL,
+0,
+0,
+};
+
+
+
+
+===============================参考================================
+
+
+
+
+/* All cmd_fn functions have unified input: (char *text, param_block_t *pbss, int val) */
+
+#define REG_FN(x) const char * x(char *text, void *pbss, int val,cJSON * params)
+
+
+const struct command_s      known_app_audio_rx [] __attribute__((section(".known_commands_app")))= 
+{
+    {"AUDIO_RX",  mCmdGrp2 | mIDLE,   f_audio_rx,     COMMENT_AUDIO_RX},
+};
+
+const struct command_s   known_commands_audio_rx [] __attribute__((section(".known_app_subcommands")))= 
+{
+    {NULL,      mCmdGrp0 | mAPP,                    NULL,    COMMENT_AUDIO_RX_OPT},
+    {"AUDIO_RX_STAT",   mCmdGrp1 | mAPP | APP_LAST_SUB_CMD, f_audio_rx_stat, COMMENT_AUDIO_RX_STAT  },
+};
+
+REG_FN(f_audio_rx)
+{
+    app_definition_t *app_ptr = (app_definition_t *)&helpers_app_audio_rx[0];
+    EventManagerRegisterApp((void *)&app_ptr);
+
+    return (CMD_FN_RET_OK);
+}
+
+
+
+
+
+

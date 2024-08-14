@@ -1,0 +1,150 @@
+
+
+=======================把uart5要发送的数据保存到txHandle.Report.buf中 =========以audio_rx为例====================
+
+
+flow：
+
+    BoardInit  --  MX_TIM4_Init  -- HAL_TIM_IRQHandler  --   HAL_TIM_PeriodElapsedCallback -- audio_rx_debug_output  --  copy_tx_msg  --  (txHandle.Report.buf)
+
+
+数据流：  （TIM4）  --  debug_log_buffer  --  txHandle.Report.buf      
+
+
+--------------------------------------------------------------------------
+
+
+
+ main( )
+  
+    BoardInit();
+
+
+--------------------------------------
+
+BoardInit(void)
+
+    MX_TIM4_Init();
+
+
+--------------------
+
+
+MX_TIM4_Init()
+ 
+    HAL_NVIC_SetPriority(TIM4_IRQn, TIM_SampleSyncIRQPriority, 0);
+    __HAL_RCC_TIM4_CLK_ENABLE();
+
+    htim4.Instance = TIM4;
+    htim4.Init.Period    = TIM_SampleSyncPeriod - 1;
+    htim4.Init.Prescaler = TIM_SampleSyncPrescaler;
+    htim4.Init.CounterMode   = TIM_COUNTERMODE_UP;
+    htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    htim4.Init.RepetitionCounter = TIM_OPMODE_REPETITIVE;
+    if (HAL_TIM_Base_Init(&htim4) == HAL_OK)
+  
+           ； /* TIM time Base Initialisation is successful*/
+    
+
+    HAL_NVIC_EnableIRQ(TIM4_IRQn);
+
+    HAL_TIM_Base_Start_IT(&htim4);
+
+
+----------------------------------------
+
+//参数： TIM4
+HAL_TIM_IRQHandler( *htim)
+ 
+    if (__HAL_TIM_GET_FLAG(htim, TIM_FLAG_UPDATE) != RESET)
+ 
+        if (__HAL_TIM_GET_IT_SOURCE(htim, TIM_IT_UPDATE) != RESET)
+ 
+            __HAL_TIM_CLEAR_IT(htim, TIM_IT_UPDATE); 
+            HAL_TIM_PeriodElapsedCallback(htim);      //here
+ 
+ 
+
+---------------------
+
+ HAL_TIM_PeriodElapsedCallback(  *htim)
+
+    if (htim->Instance == TIM4) 
+          audio_rx_debug_output();
+ 
+ 
+
+----------------------
+
+audio_rx_debug_output()
+     
+    if (  uwb_receive_ok || uwb_receive_error     || uwb_recieve_timeout || uwb_receive_msg_error
+           || uwb_receive_msg_retry || fill_buffer_error     || fetch_buffer_error || audio_data_output_error)
+
+        debug_receive_ok[debug_index] = uwb_receive_ok;
+        debug_receive_err[debug_index] = uwb_receive_error;
+        debug_receive_to[debug_index] = uwb_receive_msg_error;
+        debug_audio_i2s_call[debug_index] = audio_data_output_Call;
+
+        if (++debug_index > 9)
+            debug_index = 0;
+
+        sprintf(  debug_log_buffer, "\"R:%5d\",\"E:%5d\",\"T:%5d\",\"S:%5d\",\"Buffer:%5d-%5d\",\"Retry:%5d-%5d\",\"I2s:%5d\"\r\n", uwb_receive_ok, 
+                       uwb_receive_error, uwb_recieve_timeout, uwb_receive_msg_error, fill_buffer_error, fetch_buffer_error,
+                       uwb_receive_msg_retry, audio_data_output_error, audio_i2s_pll_updated);
+
+        copy_tx_msg( debug_log_buffer, len--all);
+
+        uwb_receive_ok          = 0;
+        uwb_receive_error       = 0;
+        uwb_recieve_timeout     = 0;
+        uwb_receive_msg_error   = 0;
+        uwb_receive_msg_retry   = 0;
+        fill_buffer_error       = 0;
+        fetch_buffer_error      = 0;
+        audio_data_output_error = 0;
+        audio_i2s_pll_updated   = 0;
+        audio_data_output_Call = 0;
+  
+--------------------------
+
+
+//把要输出的log，先保存到txHandle.Report.buf中，在后台通过flushing 任务发送出去
+ copy_tx_msg(  *str,   len)
+ 
+    error_e  ret = _NO_ERR;
+    uint16_t head, tail;
+    const uint16_t size = sizeof(txHandle.Report.buf) / sizeof(txHandle.Report.buf[0]);
+
+    if(osMutexWait(tx_buffer_mutex, USB_UART_MUTEX_TIMEMOUT_MS) != osOK) 
+        return _ERR;
+ 
+    head = txHandle.Report.head;
+    tail = txHandle.Report.tail;
+
+    if (CIRC_SPACE(head, tail, size) > len)
+ 
+        while (len > 0)
+       
+            txHandle.Report.buf[head] = *(str++);
+            head = (head + 1) & (size - 1);
+            len--;
+
+        txHandle.Report.head = head;
+
+    osMutexRelease(tx_buffer_mutex);
+ 
+
+
+
+=======================uart5发送txHandle.Report.buf中的数据==========通过flash task===================
+ 
+             (请详见“debug102_flush_flow.txt”)
+
+
+
+
+
+
+
+ 

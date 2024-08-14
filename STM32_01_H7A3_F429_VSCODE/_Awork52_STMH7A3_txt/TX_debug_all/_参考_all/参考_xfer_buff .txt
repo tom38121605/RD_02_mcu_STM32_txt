@@ -1,0 +1,241 @@
+
+
+
+
+=========================xfer_buff ： HAL_PCD_EP_Receive --USBD_AUDIO_SetInterfaceAlternate ==================
+
+
+参数：hUsbDeviceFS ？ ，BB , CC
+USBD_AUDIO_SetInterfaceAlternate( USBD_HandleTypeDef  *pdev,   as_interface_num,   new_alt)
+ 
+        USBD_AUDIO_HandleTypeDef         *haudio;
+        USBD_AUDIO_AS_InterfaceTypeDef* pas_interface;
+        USBD_AUDIO_EPTypeDef * ep;
+        
+        haudio = pdev->pClassData;    //hUsbDeviceFS->pClassData   //=haudio
+
+        //pas_interface = &haudio->aud_function.as_interfaces[as_interface_num];  //大as_interfaces
+
+        //ep = ( pas_interface->data_ep.ep_num&0x80)?  &haudio->ep_in[pas_interface->data_ep.ep_num&0x0F]:      //ep_num，这是usb的端口，如0x81为输入端口
+                                                                                            &haudio->ep_out[pas_interface->data_ep.ep_num];        
+                    ep =  haudio->ep_out[i]:    
+               
+        if(new_alt==0)                    
+                             ......忽略        
+        
+        else   /* start new   alternate interface */
+        
+                /* prepare EP */
+                ep->ep_description.data_ep=&pas_interface->data_ep;    //这里
+                
+                /* open the data ep */
+                pas_interface->SetAS_Alternate(new_alt,pas_interface->private_data);
+                pas_interface->alternate=new_alt;
+                ep->max_packet_length=ep->ep_description.data_ep->GetMaxPacketLength(ep->ep_description.data_ep->private_data);
+
+                /* open data end point */
+                USBD_LL_OpenEP(   pdev,                                                                      //hUsbDeviceFS
+                                                    ep->ep_description.data_ep->ep_num,
+                                                    USBD_EP_TYPE_ISOC,
+                                                    ep->max_packet_length);                                                 
+                 ep->open = 1;
+                 
+                 /* get usb working buffer */ 
+                ep->ep_description.data_ep->buf= ep->ep_description.data_ep->GetBuffer(ep->ep_description.data_ep->private_data,
+                                                                                                                                                         &ep->ep_description.data_ep->length);                                
+                
+                if(ep->ep_description.data_ep->ep_num&0x80)        /* IN EP */
+                             ......忽略
+                
+                else /* OUT EP */                
+ 
+                                uint32_t rate;
+ 
+                                /* Prepare Out endpoint to receive 1st packet */ 
+                               USBD_LL_PrepareReceive(   pdev,                                                                     //hUsbDeviceFS                         //这里
+                                                                                ep->ep_description.data_ep->ep_num,
+                                                                                 ep->ep_description.data_ep->buf,                 //大data_ep->buf                                                                               
+                                                                                 ep->max_packet_length); 
+ 
+                             ......忽略
+
+                        
+
+
+参数： hUsbDeviceFS ？ ， BB , 大data_ep->buf    ,  DD
+USBD_StatusTypeDef  USBD_LL_PrepareReceive(USBD_HandleTypeDef *pdev, 
+                                           uint8_t  ep_addr,                                      
+                                           uint8_t  *pbuf,
+                                           uint32_t  size)
+{
+  HAL_StatusTypeDef hal_status = HAL_OK;
+  USBD_StatusTypeDef usb_status = USBD_OK;
+
+  hal_status = HAL_PCD_EP_Receive(pdev->pData, ep_addr, pbuf, size);                                //这里
+     
+  switch (hal_status) 
+{
+    case HAL_OK :
+       usb_status = USBD_OK;
+  
+      ......(忽略)
+
+  }
+  return usb_status; 
+}
+
+ 
+参数： hpcd_USB_OTG_FS ？ ， BB ,  大data_ep->buf    ,  DD
+数据： hpcd_USB_OTG_FS->OUT_ep[i]->xfer_buff   =   大data_ep->buf  ;
+HAL_StatusTypeDef HAL_PCD_EP_Receive(PCD_HandleTypeDef *hpcd,   ep_addr,   *pBuf,  len  )
+ 
+     PCD_EPTypeDef *ep;
+
+     //ep = &hpcd->OUT_ep[ep_addr & EP_ADDR_MSK];
+           ep =  hpcd_USB_OTG_FS->OUT_ep[i];
+
+     //ep->xfer_buff = pBuf;                                                                                   //这里
+          hpcd_USB_OTG_FS->OUT_ep[i]->xfer_buff = 大data_ep->buf  ;
+
+     ep->xfer_len = len;
+     ep->xfer_count = 0U;
+     ep->is_in = 0U;
+    ep->num = ep_addr & EP_ADDR_MSK;
+
+  
+
+=========================xfer_buff ： HAL_PCD_EP_Receive --USBD_AUDIO_DataOut ==================
+
+
+参数： hUsbDeviceFS ？， BB
+static uint8_t  USBD_AUDIO_DataOut (USBD_HandleTypeDef *pdev,    epnum)
+{
+  
+  USBD_AUDIO_EPTypeDef * ep;
+  uint8_t *pbuf ;
+  uint16_t packet_length;
+
+  //ep=&((USBD_AUDIO_HandleTypeDef*) pdev->pClassData)->ep_out[epnum];
+           ep=HAUDIO->ep_out[I];
+
+  if(ep->open)
+  {
+ 
+    packet_length = USBD_LL_GetRxDataSize(pdev, epnum);
+ 
+    //ep->ep_description.data_ep->DataReceived(packet_length,ep->ep_description.data_ep->private_data);     
+        大 data_ep->DataReceived(packet_length, 大 data_epdata_ep->private_data);     
+ 
+    //pbuf=  ep->ep_description.data_ep->GetBuffer(ep->ep_description.data_ep->private_data,&packet_length);        
+    //   pbuf=  大data_ep->GetBuffer(大 data_epp->private_data,&packet_length);        
+               pbuf=  PlaybackUSBInputNode->buf->data ;        
+
+                       
+    /* Prepare Out endpoint to receive next audio packet */
+     USBD_LL_PrepareReceive(pdev,                                                           //这里
+                            epnum,
+                            pbuf,                                  //PlaybackUSBInputNode->buf->data 
+                            packet_length);
+    }
+ 
+ }
+
+
+参数： PlaybackUSBInputNode ， BB
+ USB_AudioStreamingInputGetBuffer(  node_handle,  * max_packet_length )
+ {
+        AUDIO_USBInputOutputNode_t* input_node;
+        uint16_t buffer_free_size;
+        
+        input_node = node_handle;   //PlaybackUSBInputNode
+ 
+        *max_packet_length = input_node->max_packet_length;
+
+        if( input_node->node.state == AUDIO_NODE_STARTED)
+        
+                /* control of possible overflow */
+                buffer_free_size        = AUDIO_BUFFER_FREE_SIZE(input_node->buf);
+                
+                if(buffer_free_size < input_node->max_packet_length)                 
+                        input_node->node.session_handle->SessionCallback(AUDIO_OVERRUN,   (AUDIO_Node_t*)input_node,  input_node->node.session_handle);
+                 
+                if(input_node->flags&AUDIO_IO_RESTART_REQUIRED)
+                
+                       input_node->flags = 0;
+                       input_node->buf->rd_ptr = input_node->buf->wr_ptr = 0;
+                
+                //return input_node->buf->data+input_node->buf->wr_ptr;
+                      return  PlaybackUSBInputNode->buf->data  + x;
+}        
+  
+
+参数： hUsbDeviceFS ？ ， PlaybackUSBInputNode->buf->data    ,  DD
+USBD_StatusTypeDef  USBD_LL_PrepareReceive(USBD_HandleTypeDef *pdev, 
+                                           uint8_t  ep_addr,                                      
+                                           uint8_t  *pbuf,
+                                           uint32_t  size)
+{
+  HAL_StatusTypeDef hal_status = HAL_OK;
+  USBD_StatusTypeDef usb_status = USBD_OK;
+
+  hal_status = HAL_PCD_EP_Receive(pdev->pData, ep_addr, pbuf, size);                               //这里
+     
+  switch (hal_status) 
+{
+    case HAL_OK :
+       usb_status = USBD_OK;
+  
+      ......(忽略)
+
+  }
+  return usb_status; 
+}
+
+ 
+参数： hpcd_USB_OTG_FS  ？， BB , PlaybackUSBInputNode->buf->data   ,  DD
+
+HAL_StatusTypeDef HAL_PCD_EP_Receive(PCD_HandleTypeDef *hpcd,   ep_addr,   *pBuf,  len  )
+ 
+     PCD_EPTypeDef *ep;
+
+     //ep = &hpcd->OUT_ep[ep_addr & EP_ADDR_MSK];
+           ep =  hpcd_USB_OTG_FS->OUT_ep[i];
+
+     //ep->xfer_buff = pBuf;                                                                                   //这里
+          hpcd_USB_OTG_FS->OUT_ep[i]->xfer_buff =  PlaybackUSBInputNode->buf->data   ;
+
+     ep->xfer_len = len;
+     ep->xfer_count = 0U;
+     ep->is_in = 0U;
+    ep->num = ep_addr & EP_ADDR_MSK;
+
+
+
+========================================xfer_buff 参考 ====================
+
+HAL_PCD_EP_Receive      //--use
+
+HAL_PCD_EP_Transmit
+PCD_WriteEmptyTxFifo
+USB_EPStartXfer
+HAL_PCD_DataOutStageCallback
+ 
+
+
+
+========================================USBD_LL_PrepareReceive 参考 ====================
+
+
+USBD_AUDIO_SetInterfaceAlternate    //--use
+
+USBD_AUDIO_DataOut
+USBD_LL_DataInStage
+USBD_CtlPrepareRx
+USBD_CtlContinueRx
+USBD_CtlReceiveStatus
+
+
+
+
+
+

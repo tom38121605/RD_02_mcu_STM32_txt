@@ -1,0 +1,16 @@
+
+
+1. ISER(670= 1                //打开usb外设中断
+2. GAHBCFG.0=1            //打开全局中断 （仅为usb的全局中断）
+2. GAHBCFG.8-7             //参考
+
+3. GINTMSK = FFFF        //不屏蔽中断
+3. DIEPEMPMSK             //屏蔽输入非空中断
+3. DIEPMSK, DOEPMSK  //屏蔽输入输出端点中断
+3. DAINTMSK.15-0，31-16        //屏蔽输入输出端点 的中断
+4. DIEPCTLx, DOEPCTLx      //使能输入输出端点
+
+5. GINTSTS                          //中断状态标志，如bit19=1，发生了输出中断
+6. DAINT.15-0，31-16        //输入输出端点，中断状态标志  （哪一个端点发生了中断） 
+7. DIEPINIx, DOEPINIx        //输入输出端点，细分中断状态标志 （那个端点发生了什么中断）
+

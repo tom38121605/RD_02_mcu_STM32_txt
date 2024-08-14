@@ -1,0 +1,460 @@
+ 
+  
+。从usb中断读取音乐数据到大xfer_buff 
+。把 大epout_xfer_buff 存入到 环形变量PlaybackSpeakerOutputNode->buf.data
+
+ 
+======================================== 从usb中断读取音乐数据到大xfer_buff =======================================
+ 
+flow1： （ 从usb中断读取数据）
+
+      OTG_FS_IRQHandler  -- HAL_PCD_IRQHandler -- - (从机模式 -- GINTSTS有数据包中断 --GRXSTSP收到音乐数据 )   -- USB_ReadPacket
+
+
+数据流：  usb中断 -- USBx_DFIFO -- hpcd_USB_OTG_FS->OUT_ep[ 1 ]->xfer_buff    ( 即 大epout_xfer_buff )
+
+ -----------------------------------------------------------------------------------------------------
+
+
+//usb OTG 中断入口
+ OTG_FS_IRQHandler( )
+ 
+          HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS);
+
+--------------
+
+
+参数： hpcd_USB_OTG_FS
+HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
+ 
+        USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;   //=USB_OTG_FS
+        uint32_t USBx_BASE =  USBx;       //=USB_OTG_FS
+
+        uint32_t    i, ep_intr, epint, epnum;
+        uint32_t    fifoemptymsk, temp;
+        USB_OTG_EPTypeDef    *ep;
+
+        if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)    //这里只考虑从机         
+
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_RXFLVL))   //  已接收到数据包的中断
+                
+                        USB_MASK_INTERRUPT(hpcd->Instance, USB_OTG_GINTSTS_RXFLVL);    //暂时关中断
+
+                        temp = USBx->GRXSTSP;
+
+                        //ep = &hpcd->OUT_ep[temp & USB_OTG_GRXSTSP_EPNUM ];
+                             ep = &hpcd->OUT_ep[ GRXSTSP.EPNUM ];   //GRXSTSP.3-0  ，端点号
+
+                        if (((temp & USB_OTG_GRXSTSP_PKTSTS) >> 17) ==  STS_DATA_UPDT)   //GRXSTSP.20-17=0010 , 收到音乐数据 
+                        
+                                if ((temp & USB_OTG_GRXSTSP_BCNT) != 0U)                                
+                                         //USB_ReadPacket(USBx, ep->xfer_buff,  (temp & USB_OTG_GRXSTSP_BCNT) >> 4) ;      //这里
+                                               for (i = 0; i < count32b; i++)
+                                                    hpcd_USB_OTG_FS->OUT_ep[ i ]->xfer_buff  =  USBx_DFIFO(0);   //数据流
+ 
+                                         ep->xfer_buff += (temp & USB_OTG_GRXSTSP_BCNT) >> 4;
+                                         ep->xfer_count += (temp & USB_OTG_GRXSTSP_BCNT) >> 4;
+                                
+                        
+                        else if (((temp & USB_OTG_GRXSTSP_PKTSTS) >> 17) == STS_SETUP_UPDT)    //  //GRXSTSP.20-17=0110 , 收到描述符请求指令                         
+                                (忽略......)                        
+ 
+                        USB_UNMASK_INTERRUPT(hpcd->Instance, USB_OTG_GINTSTS_RXFLVL);    //重新开中断
+                
+
+----------------
+
+#define USB_OTG_FIFO_BASE                   0x1000UL
+#define USB_OTG_FIFO_SIZE                     0x1000UL
+
+USBx_BASE=USB_OTG_FS
+#define USBx_DFIFO(i)          *(USBx_BASE + USB_OTG_FIFO_BASE + ((i) * USB_OTG_FIFO_SIZE))
+#define __UNALIGNED_UINT32_WRITE(addr, val)    ((*((__packed uint32_t *)(addr))) = (val))
+
+数据流：  USBx_DFIFO -- hpcd_USB_OTG_FS->OUT_ep[ i ]->xfer_buff
+USB_ReadPacket(  *USBx,   *dest,    len)                                                               //参数： USB_OTG_FS， USB_OTG_FS,  ep[i]->xfer_buff ， BCNT>> 4
+ 
+        uint32_t USBx_BASE = USBx;         //=USB_OTG_FS
+
+        uint32_t  *pDest = dest;            // =  ep->xfer_buff 
+        uint32_t   i;
+        uint32_t   count32b = ( BCNT>> 4 + 3) / 4;
+
+        for (i = 0; i < count32b; i++)
+       
+                //__UNALIGNED_UINT32_WRITE(pDest, USBx_DFIFO(0));
+                //    pDest  =  USBx_DFIFO(0);   
+                //      ep->xfer_buff  =  USBx_DFIFO(0);   
+                //           hpcd_USB_OTG_FS->OUT_ep[i]->xfer_buff  =  USBx_DFIFO(0);   
+                                 大epout_xfer_buff  =  USBx_DFIFO(0);   
+
+                pDest++;
+
+
+
+==============================把 大epout_xfer_buff 存入到环形变量  *Node->buf.data==========================
+ 
+flow1： （ 从usb中断读取数据）
+
+      HAL_PCD_IRQHandler -- - (从机模式 -- GINTSTS有数据包中断 --GRXSTSP收到音乐数据 )    -- USB_ReadPacket
+
+数据流：   USBx_DFIFO -- hpcd_USB_OTG_FS->OUT_ep[ i ]->xfer_buff  ( 即 大epout_xfer_buff )
+ 
+
+flow2： （ 把 xfer_buff 存入到环形变量PlaybackSpeakerOutputNode->buf.data）
+
+        HAL_PCD_IRQHandler --  (从机模式 -- 有输出端点的中断 -- DAINT有输出端口中断 -- 是端口0的输出中断  -- XFRC传输完成的中断）-- PCD_EP_OutXfrComplete_int 
+
+        -- HAL_PCD_DataOutStageCallback -- USBD_LL_DataOutStage -- (pdev->pClass->DataOut) -- USBD_AUDIO_DataOut   
+        -- (ep->ep_description.data_ep->DataReceived) -- USB_AudioStreamingInputDataReceived  
+        -- ( ep->ep_description.data_ep->GetBuffer) -- USB_AudioStreamingInputGetBuffer -- USBD_LL_PrepareReceive -- HAL_PCD_EP_Receive    
+
+
+数据流：   hpcd_USB_OTG_FS->OUT_ep[1 ]->xfer_buff  ( 即 大epout_xfer_buff ) --  PlaybackSpeakerOutputNode->buf.data
+数据流2： USB_AudioPlabackSession->buffer  -- PlaybackSpeakerOutputNode->buf  
+                  
+ 
+----------------------------------------------------------------------------------------------------------------------------------------------
+ 
+//usb OTG 中断入口
+ OTG_FS_IRQHandler( )
+ 
+          HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS);
+
+--------------
+
+参数： hpcd_USB_OTG_FS
+HAL_PCD_IRQHandler( PCD_HandleTypeDef  *hpcd)
+ 
+        USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;
+        uint32_t USBx_BASE = (uint32_t)USBx;
+        uint32_t i, ep_intr, epint, epnum;
+        uint32_t fifoemptymsk, temp;
+        USB_OTG_EPTypeDef *ep;
+ 
+        if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)   //从机模式
+  
+                if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_RXFLVL))  //已接收到数据包
+                           ......(忽略)          //其他地方，见上面的流程调用
+
+
+                //if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_OEPINT))   //在out端点上有中断挂起
+                        if ( GINTSTS.19 == 1)  //OEPINT    // 如果有usb的数据進来（ pc发到mcu）
+                 
+                        epnum = 0;
+                        
+                        //ep_intr = USB_ReadDevAllOutEpInterrupt(hpcd->Instance);   //读取输出端口的中断
+                               //ep_intr = USB_ReadDevAllOutEpInterrupt( USB_OTG_FS );
+                                    ep_intr = (DAINT & DAINTMSK) >>16;  //取得发送中断的OUT端点的编号
+        
+                        while (ep_intr != 0) //如果有输出端口中断
+                        
+                                if (ep_intr & 0x1)    //有端点0时的处理
+                               
+                                        //epint = USB_ReadDevOutEPInterrupt(hpcd->Instance, epnum);   
+                                               epint = USB_ReadDevOutEPInterrupt( USB_OTG_FS , 0);       // 取得OUT端点0的具体中断类型DOEPINTx
+
+                                        if ((epint & USB_OTG_DOEPINT_XFRC) == USB_OTG_DOEPINT_XFRC)   //传输完成的中断
+                                                CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_XFRC);   清中断标志
+
+                                                //PCD_EP_OutXfrComplete_int(hpcd, epnum);                               //这里
+                                                   PCD_EP_OutXfrComplete_int( hpcd_USB_OTG_FS,  epnum);           
+
+                                         ......(忽略)
+
+-------------
+
+参数： hpcd_USB_OTG_FS, BB    
+PCD_EP_OutXfrComplete_int(  *hpcd,    epnum)
+ 
+        USB_OTG_GlobalTypeDef   *USBx = hpcd->Instance;
+        uint32_t                                  USBx_BASE = USBx;
+
+        uint32_t                                  gSNPSiD =  USBx->CID + 0x1 ;                                       //product id
+        uint32_t                                  DoepintReg = USBx_OUTEP(epnum)->DOEPINT;
+
+        if (hpcd->Init.dma_enable == 1U)      //no   
+                  ......(忽略)           //no dma
+      
+        else      //yes
+         
+                if (gSNPSiD == USB_OTG_CORE_ID_310A)    //4f54281a!=4f54310a //no                        
+                        ......忽略                
+                
+                else
+                 
+                        //if ((epnum == 0U) && (hpcd->OUT_ep[epnum].xfer_len == 0U))  
+         
+                            //USB_EP0_OutStart(hpcd->Instance, 0 ,  hpcd->Setup);              // fifo数据包大小1, 总发送字节数量24 ,包数量3         
+                                USBx_OUTEP(0U)->DOEPTSIZ = 0;
+                                USBx_OUTEP(0U)->DOEPTSIZ |= (USB_OTG_DOEPTSIZ_PKTCNT & (1 << 19));         //DOEPTSIZ.20-19=1,  fifo数据包大小
+                                USBx_OUTEP(0U)->DOEPTSIZ |= (3 * 8);                                                                          //DOEPTSIZ.6-0=24，总发送字节数量
+                                USBx_OUTEP(0U)->DOEPTSIZ |=  USB_OTG_DOEPTSIZ_STUPCNT;    //3 << 29         //DOEPTSIZ.30-29=11，包数量      
+
+
+                        //HAL_PCD_DataOutStageCallback(hpcd,  1);          //这里
+                        //    USBD_LL_DataOutStage( hUsbDeviceFS,  1,  hpcd_USB_OTG_FS->OUT_ep[1].xfer_buff);
+                                             USBD_LL_DataOutStage( hUsbDeviceFS, 1,  大epout_xfer_buff);          
+ 
+
+-------------- 
+
+数据流： 即 大epout_xfer_buff  --  PlaybackSpeakerOutputNode->buf.data ，   USB_AudioPlabackSession->buffer  -- PlaybackSpeakerOutputNode->buf  
+USBD_LL_DataOutStage( USBD_HandleTypeDef  *pdev,  epnum,   *pdata)   //参数： hUsbDeviceFS , 1 ,   大epout_xfer_buff
+ 
+        if (epnum == 0) 
+               ......  (忽略)
+ 
+        else
+    
+                if (pdev->dev_state == USBD_STATE_CONFIGURED)
+                
+                        if (pdev->pClass->DataOut != NULL)
+                        
+                                //pdev->pClass->DataOut(pdev, epnum);
+                                      USBD_AUDIO_DataOut(hUsbDeviceFS, 1);
+
+--------
+
+
+数据流： 即 大epout_xfer_buff  --  PlaybackSpeakerOutputNode->buf.data ，   USB_AudioPlabackSession->buffer  -- PlaybackSpeakerOutputNode->buf  
+USBD_AUDIO_DataOut (  *pdev,    epnum)    //参数： hUsbDeviceFS  ， 1
+  
+     USBD_AUDIO_EPTypeDef    * ep;
+      uint8_t                                   *pbuf ;
+      uint16_t                                  packet_length;
+
+      //ep=&( pdev->pClassData)->ep_out[1];
+             ep=HAUDIO->ep_out[1];
+
+     if(ep->open)     
+ 
+         packet_length = USBD_LL_GetRxDataSize(pdev, epnum);
+ 
+         //ep->ep_description.data_ep->DataReceived(packet_length,ep->ep_description.data_ep->private_data);     
+         //   大 data_ep->DataReceived(packet_length, 大 data_epdata_ep->private_data);     
+               USB_AudioStreamingInputDataReceived(packet_length, PlaybackUSBInputNode );     数据流： USB_AudioPlabackSession->buffer  -- PlaybackSpeakerOutputNode->buf  
+ 
+         //pbuf=  ep->ep_description.data_ep->GetBuffer(ep->ep_description.data_ep->private_data,&packet_length);        
+         //   pbuf=  大data_ep->GetBuffer(PlaybackUSBInputNode,&packet_length);      
+         //      pbuf=  USB_AudioStreamingInputGetBuffer(PlaybackUSBInputNode,&packet_length);      
+                    pbuf=  PlaybackUSBInputNode->buf->data ;        
+                       
+         /* Prepare Out endpoint to receive next audio packet */
+          //USBD_LL_PrepareReceive(pdev,  1,  pbuf,  packet_length);
+               HAL_PCD_EP_Receive(hpcd_USB_OTG_FS, 1, pbuf, size);       //数据流：  大epout_xfer_buff -- PlaybackSpeakerOutputNode->buf.data
+
+
+---------
+
+数据流： USB_AudioPlabackSession->buffer  --     PlaybackSpeakerOutputNode->buf  
+USB_AudioStreamingInputDataReceived( data_len,   node_handle)  参数： AA , 大data_ep->private_data   (即  PlaybackSpeakerOutputNode   )
+  
+         AUDIO_USBInputOutputNode_t * input_node;
+         AUDIO_CircularBuffer_t *buf;
+         
+         input_node =  node_handle;       //=PlaybackSpeakerOutputNode  
+
+         if(input_node->node.state == AUDIO_NODE_STARTED)       
+ 
+                 buf=input_node->buf;
+                 buf->wr_ptr += data_len; 
+
+                 if((input_node->flags&AUDIO_IO_BEGIN_OF_STREAM) == 0)       
+                                ......  (忽略)
+                  
+                 else
+                          
+                       if(buf->wr_ptr > buf->size)                          
+                                 buf->wr_ptr -= buf->size;
+                                 memcpy(buf->data,  buf->data+buf->size,  buf->wr_ptr);
+                         
+                        buffer_data_count = AUDIO_BUFFER_FILLED_SIZE(buf); 
+
+                        if(buf->wr_ptr == buf->size)                         
+                                  buf->wr_ptr = 0;
+                        
+                        if(((input_node->flags&AUDIO_IO_THRESHOLD_REACHED) == 0)&&  (buffer_data_count >= input_node->specific.input.threshold))
+                                
+                            //input_node->node.session_handle->SessionCallback(AUDIO_THRESHOLD_REACHED, input_node,   input_node->node.session_handle);                           //这里
+                            //  PlaybackSpeakerOutputNode->node.session_handle->SessionCallback(AUDIO_THRESHOLD_REACHED, PlaybackSpeakerOutputNode, PlaybackSpeakerOutputNode->node.session_handle);      
+                            //    USB_AudioPlabackSession->session->SessionCallback(AUDIO_THRESHOLD_REACHED, PlaybackSpeakerOutputNode,   USB_AudioPlabackSession->session);      
+                                      USB_AudioPlaybackSessionCallback(A*_REACHED, PlaybackSpeakerOutputNode, USB_AudioPlabackSession->session);   //数据流：USB_AudioPlabackSession->buffer -- PlaybackSpeakerOutputNode->buf  
+
+                                 input_node->flags |= AUDIO_IO_THRESHOLD_REACHED ;
+                          
+                         else                          
+                                 input_node->node.session_handle->SessionCallback(AUDIO_PACKET_RECEIVED, input_node,   input_node->node.session_handle);  
+        
+-----------
+
+
+数据流： USB_AudioPlabackSession->buffer  --     PlaybackSpeakerOutputNode->buf  
+//USB_AudioPlaybackSessionCallback( event,  * node,  struct AUDIO_Session* session_handle)     //参数：AA,   PlaybackSpeakerOutputNode ， USB_AudioPlabackSession->session  
+                                                                  
+    //AUDIO_USBSession_t * play_session =  (AUDIO_USBSession_t *) session_handle;   
+            AUDIO_USBSession_t * play_session =  (AUDIO_USBSession_t *) (USB_AudioPlabackSession->session);     //=USB_AudioPlabackSession    //这种强制转换或有隐患? （不会有，是同一个地址同一块内存）
+    
+    switch(event) 
+    case AUDIO_THRESHOLD_REACHED:    
+        
+          if(node->type    ==    AUDIO_INPUT)
+      
+                 //PlaybackSpeakerOutputNode.SpeakerStart(& play_session->buffer, &PlaybackSpeakerOutputNode);                                  //这里
+                 //  PlaybackSpeakerOutputNode.SpeakerStart(& USB_AudioPlabackSession->buffer, &PlaybackSpeakerOutputNode);
+                            AUDIO_SpeakerStart(& USB_AudioPlabackSession->buffer, &PlaybackSpeakerOutputNode);
+   
+	         PlaybackSynchroFirstSofReceived =0;        /* restart synchronization*/
+    
+            ...... (忽略)
+
+
+--------    
+
+数据流： USB_AudioPlabackSession->buffer  --  PlaybackSpeakerOutputNode->buf 
+AUDIO_SpeakerStart(    *buffer,    node_handle)        //参数： USB_AudioPlabackSession->buffer     ， PlaybackSpeakerOutputNode( 即 AUDIO_SpeakerHandler )
+ 
+        AUDIO_SpeakerNode_t *speaker;
+
+        speaker                             =  node_handle;                     //PlaybackSpeakerOutputNode
+        speaker->buf                    = buffer;                                 // USB_AudioPlabackSession->buffer  --  PlaybackSpeakerOutputNode->buf 
+        speaker->specific.cmd = 0;
+        AUDIO_SpeakerMute(0, speaker->node.audio_description->audio_mute, node_handle);
+        AUDIO_SpeakerSetVolume(0, speaker->node.audio_description->audio_volume_db_256, node_handle);
+        speaker->node.state = AUDIO_NODE_STARTED;
+
+
+--------------------
+
+
+ 数据流： pbuf=  PlaybackUSBInputNode->buf->data       
+USB_AudioStreamingInputGetBuffer(  node_handle,  * max_packet_length )   //参数： PlaybackUSBInputNode ， BB
+ 
+        AUDIO_USBInputOutputNode_t* input_node;
+        uint16_t buffer_free_size;
+        
+        input_node                  =   node_handle;                                         //PlaybackUSBInputNode 
+        *max_packet_length   =   input_node->max_packet_length;
+
+        if( input_node->node.state == AUDIO_NODE_STARTED)
+  
+              buffer_free_size   = AUDIO_BUFFER_FREE_SIZE(PlaybackUSBInputNode->buf);
+                
+              if(buffer_free_size < input_node->max_packet_length)                 //no
+                  //input_node->node.session_handle->SessionCallback(AUDIO_OVERRUN,   input_node,  input_node->node.session_handle);
+                      USB_AudioPlaybackSessionCallback(AUDIO_OVERRUN,  PlaybackUSBInputNode,  USB_AudioPlabackSession->session);   //数据流：USB_AudioPlabackSession->buffer -- PlaybackSpeakerOutputNode->buf  
+                 
+              if(input_node->flags&AUDIO_IO_RESTART_REQUIRED)
+                
+                       input_node->flags = 0;
+                       input_node->buf->rd_ptr = input_node->buf->wr_ptr = 0;
+                
+              //return input_node->buf->data+input_node->buf->wr_ptr;
+                      return  PlaybackUSBInputNode->buf->data  + x;
+      
+
+--------
+ 
+
+数据流：  大epout_xfer_buff -- PlaybackSpeakerOutputNode->buf.data
+HAL_PCD_EP_Receive(  *hpcd,   ep_addr,   *pBuf,  len  )                     //参数： hpcd_USB_OTG_FS ， 1 , PlaybackUSBInputNode->buf->data   ,  DD
+ 
+     PCD_EPTypeDef *ep;
+
+     //ep = &hpcd->OUT_ep[ep_addr & EP_ADDR_MSK];
+           ep =  hpcd_USB_OTG_FS->OUT_ep[i];
+
+     //ep->xfer_buff = pBuf;                                                                                   //这里
+          hpcd_USB_OTG_FS->OUT_ep[i]->xfer_buff =  PlaybackUSBInputNode->buf->data   ;
+
+     ep->xfer_len = len;
+     ep->xfer_count = 0U;
+     ep->is_in = 0U;
+     ep->num = ep_addr & EP_ADDR_MSK;
+
+
+
+
+-------------------------------------------------------忽略-------------------------------------------------------------------
+
+haudio->aud_function.as_interfaces[i].private_data  = USB_AudioPlabackSession 
+as_desc->private_data                                                     = session_handle;      //USB_AudioPlabackSession
+as_desc = haudio->aud_function.as_interfacesc[i] 
+ 
+
+参数： AA ,  BB ,  CC ,  USB_AudioPlabackSession
+AUDIO_PlaybackSessionInit( USBD_AUDIO_AS_InterfaceTypeDef * as_desc,   * controls_desc, * control_count,   session_handle )
+
+         as_desc->synch_enabled = 1;
+         as_desc->synch_ep.ep_num = USB_AUDIO_CONFIG_PLAY_EP_SYNC;
+         as_desc->synch_ep.GetFeedback = USB_AudioPlaybackGetFeedback;
+         as_desc->synch_ep.private_data =  play_session;
+         as_desc->SofReceived = AUDIO_USB_Session_Sof_Received;
+ 
+          as_desc->interface_num =  play_session->interface_num;
+          as_desc->alternate = 0;
+          as_desc->max_alternate = AUDIO_USB_PLAYBACK_ALTERNATE;
+          as_desc->private_data = session_handle;      //USB_AudioPlabackSession
+
+          as_desc->SetAS_Alternate = USB_AudioPlaybackSetAudioStreamingInterfaceAlternateSetting;
+          as_desc->GetState = USB_AudioPlaybackGetState;
+
+
+-----
+
+   play_session->buffer.data = play_session_buffer;
+  USB_AudioStreamingInitializeDataBuffer(&play_session->buffer, USB_AUDIO_CONFIG_PLAY_BUFFER_SIZE,  AUDIO_MS_PACKET_SIZE_FROM_AUD_DESC(&PlaybackAudioDescription) , buffer_margin);
+
+
+
+
+
+
+==========================================bf========================================
+ 
+
+数据流： AUDIO_SpeakerHandler->buf->data  -- AUDIO_SpeakerHandler->specific.data -- psAudioInfo->data_buffer->data
+
+ AUDIO_SpeakerUpdateBuffer( )        //audio_tx_task_fill_data部分
+
+        if ((AUDIO_SpeakerHandler) && (AUDIO_SpeakerHandler->node.state != AUDIO_NODE_OFF))        
+               
+                if (AUDIO_SpeakerHandler->node.state == AUDIO_NODE_STARTED)               /* if speaker was started prepare next data */
+                
+                        if (AUDIO_SpeakerHandler->specific.cmd & SPEAKER_CMD_STOP)               
+                                       ......  (忽略)
+                       
+                        else                       
+
+                                //AUDIO_SpeakerHandler->node.session_handle->SessionCallback( AUDIO_PACKET_PLAYED, AUDIO_SpeakerHandler,  AUDIO_SpeakerHandler->node.session_handle );     
+                                //        USB_AudioPlabackSession->session->SessionCallback( AUDIO_PACKET_PLAYED, AUDIO_SpeakerHandler,  AUDIO_SpeakerHandler->node.session_handle );
+                                                 USB_AudioPlaybackSessionCallback( AUDIO_PACKET_PLAYED, AUDIO_SpeakerHandler,  AUDIO_SpeakerHandler->node.session_handle );    //待用
+
+
+                                AUDIO_SpeakerHandler->specific.data_size = AUDIO_SpeakerHandler->packet_length; 
+                                read_length = AUDIO_SpeakerHandler->packet_length;
+                                wr_distance = AUDIO_BUFFER_FILLED_SIZE(AUDIO_SpeakerHandler->buf);
+
+                                if (wr_distance < read_length)   
+                                          ......  (忽略)
+                                 
+                                else                                 
+
+                                         audio_tx_task_fill_data(AUDIO_SpeakerHandler->specific.data, AUDIO_SpeakerHandler->specific.data_size)；  //这里
+      
+                                        /* update read pointer */
+                                        AUDIO_SpeakerHandler->specific.data = AUDIO_SpeakerHandler->buf->data + AUDIO_SpeakerHandler->buf->rd_ptr;          //这里
+                                        AUDIO_SpeakerHandler->buf->rd_ptr += read_length;
+
+                                        if (AUDIO_SpeakerHandler->buf->rd_ptr >= AUDIO_SpeakerHandler->buf->size)
+                                        
+                                                 AUDIO_SpeakerHandler->buf->rd_ptr = AUDIO_SpeakerHandler->buf->rd_ptr - AUDIO_SpeakerHandler->buf->size;
+                                                           
+               
+
+
+
+
+
+
+ 
