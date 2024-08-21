@@ -1,0 +1,553 @@
+ 
+
+======stm32c011F6U6====24C02测试===========
+
+0. 说明： 即使完全断开24c02， mcu的scl和sda上面也应有正常的波形，只是数据不完整
+
+1. 测试i2c_mytest_hal, I2C引脚是PC14(SDA), PB7(SCL),波特率115200
+问题： 串口打印 C8 4F
+分析： 主要是SDA接错了引脚，SDA容易接错两个地方，下面是解决方法
+解决： 原来是SDA线接在了PA10上面
+解决2： 原来SDA接在了里面一排的排针上，里面一排的并排位置是接地，不是PC14
+
+
+2. 把hal移植到tx的LL中测试， I2C引脚是PA10(SDA), PB7(SCL)     //昨天上午测试可以，但下午测试出现问题
+问题： 输出00 ， scl上有波形，SDA上没有波形
+解决： 把PA10引脚插在PA1上面
+
+
+3. 串口输出 FF FF
+解决： 把波特率从115200， 改成1M
+
+4.  示波器都有来回的数据波形，但输出00 00 ， 数据错误  （程序曾在昨天上午测试数据正确）
+分析： 这次 引脚，波特率都是正确的
+分析2： 向24c02写数据后，需要延时等待一段时间
+解决： 把下面的delay_nop从5000，改成50000，正确的代码如下：
+
+       2c_writereg( 0xA0,0x03,6);
+       
+delay_nop(50000); 
+       
+itemp=i2c_readreg( 0xA0,0x03);
+ 
+      
+Send_Data_To_UART1(itemp);  
+
+
+
+==========bootload测试===========
+
+1.  halfuart 不能跳转 （jump in）
+     解决： 把uart_init中dswitch2rx注释
+
+2.  定义大数组，不能跳转  （jump in）
+    解决：用const定义大数组
+
+3.  在keil中， 16k多     （Program Size: Code=16184 RO-data=320 RW-data=4 ZI-data=6028  ）
+    在stm32cubeide中， 只有 7k多
+
+4. rxjump跳转后卡住 （跳转out）
+    解决： 关闭外部中断exit4-15    （最好关闭所有已打开的中断）
+
+5. 在multi rx中不能跳转jump out
+   解决： 注释sendcmd  “..."                ()
+
+6. 在halfuart中，操作sendcmd  “..." 后，不能跳转jump out
+   解决： 跳转前把下面两个都打开
+             USART1->CR1 |=(1<<2);
+      
+             USART1->CR1 |=(1<<3);
+
+7. 在ledprj中，去掉timer1后，不能被跳转jump in
+   分析： 在MX中去掉timer1时，会把中断向量表（.s文件）的中断号TIM1_BRK_UP_TRG_COM_IRQHandler的对应函数删除（在~_it.c .h中）
+   解决(方法1)： 不操作MX， 手动注释MX_TIM1_Init（）       //目地是减少bin文件大小    （已实现）
+   解决(方法2)： 操作MX， 不删除TIM1_BRK_UP_TRG_COM_IRQHandler（）                 （待尝试）
+
+8. 在multirxjump中，读bootflag=FF，跳转运行led没有反应  （jump out）
+   解决： 是因为multirxjump的程序变大了，大于12k，超过了83000
+
+
+20. TX的板的half uart波形电压不够，波形不正常   （或无上拉）
+   。而TX2， RX2板则是正常的
+
+
+=================问题=== 12612===soma_instrument_tracker测试=====================
+
+1. 在multirx中，带bootload版本“ommocom-128-ready-to-github-V20240511-k-kp”，修改成从8-0000运行，开机没有log
+分析： 通过BT跳转到8-3000运行有log，但从8-0000直接运行则没有log
+解决： 注释下面这一句  （原来就是注释的，修改8-3000时，无意中被打开）
+         //#define VECT_TAB_SRAM 
+
+
+2. tx在cube中编译烧录后， rx采用split分包处理（crc，存flash），rx一直回复D2指令，tx不能接收D2指令    （可100%重现）
+*条件：tx在cube中不编译优化
+分析： 可加入打ialldatalen的log
+解决： 待解决                             
+思路：在tx中，在接收D2的地方打log调试  （数据采用00-FF的原始数据）
+
+重现1：  在cube中重新编译， 再烧写到tx
+
+            55 AA 07 C3 01 FB EF 7C A1 D1 
+            AA 55 03 E3 01 E6 
+
+           //按rx reset键，出现下面问题提示
+           save flash err
+
+          //按tx reset键，出现下面问题提示     （似乎是TX难以接收到D2指令）
+          55 AA 43 C2 01   55 (x64)   45 
+          AA 55 03 D2 01 D5 
+
+         55 AA 43 C2 01   00 -- 3F   E5    //rx无回复
+
+
+分析1：  在keil中编译，则不会出现上面的问题。 
+分析2： 会不会是有可能数组太大引起的             //答： 数组减少一半，问题还在
+分析3： 会不会波特率有变化   （经测试，基本与波特率无关）
+
+
+2. tx在cube中编译烧录后， rx采用split分包处理（crc，存flash），rx一直回复D2指令，TX不能接收D3指令     （可100%重现）
+*条件：tx在cube中编译优化O3
+条件： rx： soma_tracker_20 ,  tx:  
+解决： 待解决        
+分析1：  在keil中编译，则不会出现上面的问题。    
+
+
+3. tx在cube中编译烧录后， rx采用整包处理（crc，存flash） ， rx发30来遍D1指令，Tx才有反应回复C2指令  （偶尔出现）
+解决： 待解决  （后来再测试又正常了，一两遍rx就有反应了）
+ 
+
+重现方法： 两块板通讯结束后， 等几分钟后，再按tx的reset键
+
+
+======================问题=== 12669=====测试==========================
+
+1. 突然I2C不能读取mmc5603的ID，烧录以前的程序不能读写24c02  （scl： PB7  sda： PA10）
+   分析： 以前都测试ok的，并保留了相应的版本，但重新烧录后已不能正常读写
+   分析2： 重新插拔4根接线，还是不行。换了4跟线也不行
+   解决：找到原因了，是因为打开了惠普电脑的sscom，对i2c的SDA引脚（PA10)造成了干扰。 关掉惠普pc上的sscom，即ok
+
+
+
+
+
+
+==============rx2 到cubeide的修改点===============
+
+    1. 在mx中生成cube工程
+    2. 在it.c中的用户代码中定义ilen
+    3. 在include中， 添加core中的hfile
+    3. 在include中， 再添加core中的hfile\Legacy
+
+    4. 注释： 
+        SCB->VTOR = FLASH_BASE | 0x3000;
+
+    5. 在cube中修改hex的起始地址
+
+        1）.  在 STM32C011F6UX_FLASH.ld 中 ，修改运行起始地址
+
+            //FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 32K
+     //实操中，ld文件中不能用//来注释
+            FLASH    (rx)    : ORIGIN = 0x8003000,   LENGTH = 20K
+
+        2）.  在 system_stm32c0xx.c 中，修改中断向量表偏移地址 
+ 
+                //#define VECT_TAB_OFFSET 0x00
+                #define VECT_TAB_OFFSET 0x3000
+ 
+                void SystemInit(void)
+
+                { 
+ 
+  
+                   SCB->VTOR = FLASH_BASE | VECT_TAB_OFFSET;  
+
+                }
+ 
+        3）. 在 stm32c011xx.h 中，  FLASH_BASE不需要修改，保持不变 （待验证）
+
+            #define FLASH_BASE            (0x08000000UL)
+
+
+
+==============各芯片电压范围===============
+
+stm32c011:   2.0 - 3.6v
+mmc5983:    2.8 - 3.6v
+ICM42605:   1.71  - 3.6v
+MMC5603:   1.62 - 3.6V
+TMP1075:    1.62 - 5.5v
+
+
+
+===============解决CFGBSY的方法=======================
+
+方法1： 
+
+
+方法2：  （待验证）
+
+在 FLASH_WaitForLastOperation中，加入
+
+  time_cnt = Timeout;
+
+  while((FLASH->SR & FLASH_SR_CFGBSY) != 0x00U)
+  {
+      ......
+  }
+
+  if(FLASH->SR & FLASH_SR_CFGBSY)    //加入这里两句
+  {
+    *(uint32_t*)FLASH_BASE = 0xFFFFFFFF;  
+  }
+
+ 
+ 
+
+========测试2k数据的计算速度==========
+
+软件计算：           1.96ms , 2.16ms
+stm32硬件计算：      60us
+
+
+========ilen定义在uart中断函数里面不能赋值==========
+
+分析： ilen不能赋值，总是0
+解决： 把ilen定义在uart中断函数外面， 或者前面加个static来定义
+uint32_t ilen=0;
+void USART1_IRQHandler(void)
+{
+   /* USER CODE BEGIN USART1_IRQn 0 */
+   //uint32_t ilen=0;
+   uint8_t cuartbyte=0;
+	
+   
+   if (LL_USART_IsActiveFlag_RXNE(USART1) &amp;&amp; LL_USART_IsEnabledIT_RXNE(USART1)) 
+   {   
+      //USART1->ISR &= ~(USART_ISR_RXNE_RXFNE);  //auto cleared by readed
+
+      cuartbyte = (uint8_t)(READ_BIT(USART1->RDR, USART_RDR_RDR) & 0xFFU);
+      ilen = cuartbyte ;
+      flg_rx=1;
+
+   }
+
+}
+
+
+
+========没有读取==uart中断貌似无反应==========
+
+分析： 在while中根据 flg_rx=1打印log，但无反应
+解决： 加上下面一句： cuartbyte = (uint8_t)(READ_BIT(USART1->RDR, USART_RDR_RDR) & 0xFFU);
+
+void USART1_IRQHandler(void)
+{
+   /* USER CODE BEGIN USART1_IRQn 0 */
+   uint32_t ilen=0;
+   uint8_t cuartbyte=0;
+	
+   
+   if (LL_USART_IsActiveFlag_RXNE(USART1) == LL_USART_IsEnabledIT_RXNE(USART1)) 
+   {   
+      //USART1->ISR &= ~(USART_ISR_RXNE_RXFNE);  //auto cleared by readed
+
+      flg_rx=1;
+
+   }
+
+}
+
+===========keil=====const定义后的变化================
+
+1. 全局的const 回写入到flash里面
+2. 全局的static 跟const相同
+3. 局部的const和uinit8_t相同
+4. 没有用到的变量，会被优化掉
+
+
+---------------FLASHTEMPDATA2-----------------
+
+
+
+Program Size: Code=8912 RO-data=320 RW-data=2052 ZI-data=1820     //8*256 uint8 
+
+Program Size: Code=8844 RO-data=2368 RW-data=4 ZI-data=1820        //8*256   const
+Program Size: Code=8844 RO-data=2368 RW-data=4 ZI-data=1820        //8*256  static
+
+========数组过大==出现跑飞或乱码============
+
+分析：局部函数不能定义太大的数组，当itest的数组大小超过384时，就会出现溢出的问题
+解决：把下面的itest数组的定义，从main函数移到文件的顶部（所有的函数外面）
+
+#define BUFFER_SIZE    (256*6 )  
+
+uint32_t itest[BUFFER_SIZE/4+1]={0};
+
+
+==========uart 单线通讯=====================
+
+0. 开机时，TX接TX， 开始的横向T形波，是串口初始化形成的
+
+1. 两个tx（都设为TE） 对碰时， 会重启
+   答：任何一个机子接收到数据后，延时一会儿（等对方的TE完成转为RE后），再转为TE
+   答2： 考虑使用dma减少串口发送的时间
+
+2. 启动时，主机发出两个start 。
+    答： 主机后启动，延时500ms，再進行初始化等，ok
+
+3. 分开供电测试，当重新插拔主机电源后，可正常保持通讯。但重新插拔从机电源后，主机停止发送数据。。
+   答： 是因为主机处于RE状态。修改，当主机处于RE状态100ms后还没有收到数据，则强制转为TE，并一直发送初始指令。
+
+4. 不断快速发送11 22 或 3344
+    答： 有可能两边都烧录了主机的程序
+
+5. 从机测试，发送结束后，将要从TE转为RE之前，应加延时 （主机待测试） 
+    。delaycount ？ ，err
+    。delaycount ？ ，ok  //需拔插主机，从新测试
+    。把发送数据从 4个字节增加到6个字节，delaycount 4 都是ok  （或跟发送的字节数没有关系）
+
+5.  主机测试，接收结束后，将要从RE转为TE前，（从机参数WAITSWITCH2TE_RX） 
+     #define WAITSWITCH2TE_TX 10900        //227us   流畅  
+     
+
+//#define WAITSWITCH2TE 10800      //225us  卡顿
+
+6. 所有字节发送完成后，都送人到串口发送缓冲区，至少还要等1个字节的发送时间（1M波特率是10us），才能真正结束发送
+    但这个时候应跟tx线无关了，即这段时间可以设置为RE  （待验证）
+
+
+==========keil和cubeide的大小比较=====================
+
+keil：        0x36B0    //5388
+cubeide： 0x150C    //14000
+
+==========传感器和memset===运行时间测试=====================
+
+mmc0 readbyte：            34 - 36 us
+mmc0 readspi：              22 - 24 us      少12us
+
+imc0 readbyte：             56 - 56 us
+imc0 readspi：               32 - 32  us     少 24us
+
+----------------memset测试-------------------------------------------
+
+memset(ireportdata,0,4)           // 74ns
+memset(ireportdata,0,8)           // 88ns       //接近最优      
+memset(ireportdata,0,16)         // 400ns 
+memset(ireportdata,0,32)         // 1.88us
+
+
+-----下面4句只有272ns（分开电平296ns）------
+
+         memset(ireportdata,0,8);           //分开 88ns
+         memset(ireportdata+8,0,8);       //分开 60ns
+         memset(ireportdata+16,0,8);     //分开 84ns
+         memset(ireportdata+24,0,8);     //分开 64ns
+
+----------------memset测试---------end----------------------------------
+
+
+mmc0 check frozen：  2.3 us
+mmc1 check frozen：  2.4 us
+
+
+下面3个sensor都采用 readspi 方式读取数据
+
+mmc0 read ：             22 - 24  us
+mmc0 read2：            min： 22-30 us    max： 40-44 us   （以min段为准，1000次有999次）
+mmc1 read ：             22 - 24 us
+mmc1 read2：           min： 22-30 us     max：  37-42 us   （以min段为准，1000次有999次）
+
+icm0 read：                32 us
+
+
+----------下面的3句读数据大概花80us-----------------
+
+mmc0 read2：            min： 22-30 us    max： 40-44 us   （以min段为准，1000次有999次）
+mmc1 read2：            min： 22-30 us     max：  37-42 us   （以min段为准，1000次有999次）
+icm0 read：                32 us
+
+
+----------------memcpy测试-------------------------------------------
+
+注意： 数字4个字节是 160ns， 变量4个字节是1.2us
+
+
+         memcpy((void *)irxdata2,(void *)irxdata,4);  //160nus    
+         memcpy((void *)irxdata2,(void *)irxdata,32);   //1.2us
+
+         memcpy((void *)irxdata2,(void *)irxdata,irxnum);   //1.2us   （其中 irxnum=4）
+
+        用for循环，使用irxnum，大约也是 1.2us   （其中 irxnum=4）
+
+
+----------------memcpy测试--------end-----------------------------------
+
+ 
+=======================================
+
+“.metadata”文件夹下包含了该工作空间内的所有工程的信息。用户可以通过File→Switch Workspace菜单，切换不同的工作空间。
+ metadata文件夹（用来存放对于该工作空间中软件的各种设置、项目索引等），
+
+===============spi 修改点（及uart ）=====================
+
+CS0(PA3） 改为 very high        （my)           --k
+CS0(PA3） 改为     PULL UP   （my)             //还是改为 no pulll
+
+CS0(PA3） 改为 PUSH                                --k
+SPI1   改为使能中断                                     --k
+sck, mo, mi (PA5,PA6,PA7)  改为very high     --k
+
+uart tx， rx    改为PULL UP
+
+MCO 由high 改为low 
+
+===============STM32C011F6U6TR=====================
+
+
+M0+ 32-bit
+core operating at up to 48 MHz
+ a low-power RTC
+2.0 V to 3.6 V
+
+F  --  20 脚
+6  --  32K    ROM
+6 Kbytes of SRAM
+
+12-bit ADC (2.5 MSps) with up to 15 channels
+12-bit, 0.4 Us ADC (up to 13 ext. channels) -- Conversion range:0 to 3.6 V
+ADC has up to 13 external channels and 2 internal channels (temperature sensor, voltage reference).
+
+timers：     1 + 4   （Advanced control  +  General-purpose）
+SysTick：   1
+Watchdog： 2
+SPI [I2S]：  1
+I2C：         2
+USART：    2
+RTC / RNG / AES / VREFBUF      Yes / No / No / No
+GPIOS:            18
+Wakeup pins:   4
+12-bit ADC channels (external + internal):   13+2
+
+
+
+ 
+
+ 
+================
+
+
+1. 示波器CH1的时钟线一点上去，会全部拉低掉CH2的数据线
+   把CH1的倍乘从1x调为10x
+
+2. 示波器CH2一接触到CS2，就会把CS2全部拉低 （CH1也会拉低）
+
+
+SPI总线 三线制和 四线制的区别
+方式不同 三线制指的是CS,CLK,MOMI,是半双工方式;四线制指的是 CS,CLK,MOSI和MISO,是全双工方式。
+
+收和发的数据线不同 三线制收和发的数据线都在同一根线MOMI上;四线制收和发的数据线分开。
+
+“ODR”是“Oscillating Disc Rheometer，是“振荡盘式流变仪
+
+
+=================www========================
+
+1.  官网问题解答
+    https://community.st.com/t5/forums/searchpage/tab/message?q=STM32C0&noSynonym=false&page=9&collapse_discussion=true
+
+1.  LL_mDelay(1)的2ms问题    (LL_mDelay(0)是1ms)
+    https://community.st.com/t5/stm32-mcus-embedded-software/ll-mdelay-taking-an-extra-millisecond/m-p/355232
+
+1。 MX生成新mdk工程时，会往工程里面添加一个下面的文件 “stm32c0116_discovery.c”，要在工程中删除之后才能编译通过。
+      ../../../../../../Drivers/BSP/STM32C0116-DK/stm32c0116_discovery.c
+
+2.  stm公司内部问题，关于uart和dma
+    https://community.st.com/t5/stm32cubemx-mcus/cubemx-6-6-1-stm32c0-package-1-0-0-incorrect-config/m-p/108604
+
+
+1. 两个原因：
+
+   。加上volatile
+   。把中断中的部分程序移出到while中处理
+
+
+2. 计算定时器的定时时间，公式：
+
+   t = (预分频 +1） / clk  * （count +1） 
+   count = t /(  (预分频 +1）/clk )   -1
+
+
+2. 计算定时器的定时时间， timer1的时钟选sysclk的48MHz，预分频为47999， 比较count=9   （10ms）
+
+   预分频： 47999                                     //加1，即48000
+   timer1的频率： 48M/48000=1000           //即timer1的计数器加1格的时间为1ms
+   因比较count=9，                                  //固， 定时时间为（9+1）*1ms = 10ms
+   
+2. 计算定时器的定时时间， timer1的时钟选sysclk的48MHz，预分频为4799， 比较count=9   （1ms）
+
+   预分频： 4799                                       //加1，即4800
+   timer1的频率： 48M/4800=10000           //即timer1的计数器加1格的时间为0.1ms
+   因比较count=9，                                  //固， 定时时间为（9+1）*0.1ms = 1ms
+
+2. 计算定时器的定时时间， timer1的时钟选sysclk的48MHz，预分频为47， 比较count=124   （1.25ms）
+
+   预分频： 479                                           //加1，即480
+   timer1的频率： 48M/4800=10000 0           //即timer1的计数器加1格的时间为0.01ms
+   因比较count=124，                                  //固， 定时时间为（124+1）*0.01ms = 1.25ms
+
+2. 计算定时器的定时时间， timer1的时钟选sysclk的48MHz，预分频为23， 比较count=1   （1us） 待验证
+
+   预分频： 23                                           //加1，即24
+   timer1的频率： 48M/24=2000 000           //即timer1的计数器加1格的时间为0.5us
+   因比较count=1，                                   //固， 定时时间为（1+1）*0.5us = 1us
+
+
+   
+3. 计算看门狗的定时时间，看门狗的时钟选sysclk的32kHz，预分频为4， 比较count=4095   （0.625ms？）
+
+   预分频： 4                                       //加1，即4800
+  dwg的频率： 32k/5                           //即timer1的计数器加1格的时间为5/32k s
+   因比较count=4095，                        //固， 定时时间为（4095+1）*5/32k = 0.625ms
+
+
+4. 从svn上生成mdk
+   。打开MX， 生成mdk
+   。打开mdk，include mmc5983.h
+   。导入mmc5983.c,  icm42605.c
+   。build all
+
+
+==============================================
+
+
+START + MMC0 + MMC1 + ICM0 + TCNT+ END = 320us
+2    +  7    +   7   + 12   + 2   + 2  = 32bytes 
+
+START = AA 55
+
+END = 0D 0A
+ 
+==============================================
+
+https://community.st.com/t5/stm32-mcus-products/failure-when-configuring-uart1-in-the-stm32c031c6/m-p/568088   //uart 使用hsi通讯精度故障
+https://community.st.com/t5/stm32-mcus-products/failure-when-configuring-uart2-in-the-stm32c031c6/m-p/84729     //uart2使用PA13做RX，与swdio共用，不能debug 
+https://community.st.com/t5/stm32cubemx-mcus/how-do-i-get-the-usart-to-work-on-an-stm32c011/m-p/81346         //uart1的TX引脚PA0与nRST共享，发送串口数据复位 //STM32F042K6
+
+==========================================
+
+TXE :  发送一个字节后自动置1             （ISR P738）
+         写入TDR，自动清零
+         写入TXFRQ，也会置1    //待理解  （RQR P728)
+
+
+TC :  发送完一串数据的最后一个数据后自动置1
+        写入TDR，自动清零
+        写1到TCCF, 清零                                      （ICR P741）
+
+
+======================================
+
+
+ 
+
