@@ -1,4 +1,17 @@
- 
+
+
+==============官板飞线测试====带mmc5603===================
+
+1. 在cubeide中编译，  跳出提示“Project 'xxx' has no explicit encoding set”
+分析：  有很多waring， 修改去掉了很多，但还剩几个waring
+解决： 重新打开，把隐藏的waring显现出来，然后去掉所有的waring，即ok
+
+2. 在cubeide中编译， 提示ADDVALUE重复定义
+答： 是因为在文件config.h中有定义， 在魔法棒中也有定义
+
+3. 以前在win10电脑上可以正常编译运行的led例子，拷贝到hp电脑上，在cubeide中打开并编译出现找不到一h文件的err
+答： 重新在魔法棒的include中，加入了\core\drvfile\hfile，然后编译，即ok
+
 
 ======stm32c011F6U6====24C02测试===========
 
