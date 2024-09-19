@@ -1,0 +1,279 @@
+﻿ 
+https://github.com/Ommo-Technologies/ommo_stm32_coprocessor.git
+https://github.com/Ommo-Technologies/test_scripts.git
+ 
+chunrong.zhao@ommo.co
+ommo_stm32_coprocessor
+https://github.com/orgs/Ommo-Technologies/teams/shenzhen
+
+  sprintf((char *)stest, "val2: %lx\r\n", (unsigned long)uwCRCValue);
+  iputs1((char *)stest); 
+
+
+
+
+LL_GPIO_TogglePin( LED_GPIO_Port, LED_Pin);               //toggle
+LL_GPIO_ResetOutputPin( LED_GPIO_Port, LED_Pin);      //led on
+LL_GPIO_SetOutputPin( LED_GPIO_Port, LED_Pin);          //led off
+
+ 
+#define FLASH_EEPROM_START_PAGE         15  
+#define FLASH_EEPROM_START_ADDR  ( (uint32_t)(FLASH_BASE_ADDR + FLASH_EEPROM_START_PAGE * FLASH_PAGESIZE) )  //+7000
+
+
+ uartsendcmd( (uint8_t*)"crc err\r\n", 8);
+
+https://www.st.com/en/development-tools/stm32cubemx.html#get-software
+
+
+
+=======================================
+
+      iputs1( "123\r\n");      //--test
+      iputbytes1( buf, 2);   //--test
+
+
+void set_watchdogtimer_reset(uint8_t isel, uint8_t ival)
+{  
+   uint8_t iregval=0; 
+   selbattchannel(isel); 
+   
+   iregval=i2c_readreg( ICADDR_MP2664GG, MP2664GG_POWERON_CONFIG_REG);    
+   iregval &= ~(1<<6);
+   iregval |= (ival & (1<<6) );
+   
+   i2c_writereg( ICADDR_MP2664GG, MP2664GG_POWERON_CONFIG_REG,iregval);
+   LL_mDelay(2);
+} 
+
+
+
+
+
+=======================================
+ 
+
+GS385 STM32C011 OmmoCom：
+1. Add half duplex uart ommocom.
+
+
+GS385 STM32C011 OmmoCom：
+1. Add the STM32CUBEIDE project.
+
+GS385 STM32C011 RxTest:
+1.  Set the uart tx to High-Z.
+  
+
+#if (defined TXMODE)    
+ 
+#else
+
+#endif
+
+右键单击 project \options \ 左上角的下拉选Common（code上面）\code \linker \section placement macros \FLASH_START \设为0x00
+
+
+ 
+==================================
+
+2> error: can't open C:/workspace/ommo_nrf/nRF5_SDK_17.1.0_ddde560/examples/ommo/ommo_sensor_sampler/11663A-1p_microsd_2v8-standard-3p0mm/blank/ses/ for reading
+2> Build failed
+Build failed
+
+================================
+
+only used lib:
+Program Size: Code=11380 RO-data=320 RW-data=4 ZI-data=1780  
+
+all lib:
+Program Size: Code=11380 RO-data=320 RW-data=4 ZI-data=1780  
+
+=================================
+
+1. flash_files/build.py
+    C:\workspace\ommo_nrf\flash_files/build.py
+
+2. flash_files/generate_protobuf.bat  （ommo_nrf）（move to the develop分支）
+
+    C:\workspace\ommo_nrf\flash_files\generate_protobuf_lib.bat
+
+    C:\workspace\ommo_python_core\generate_protobuf.bat
+
+     --> compiles the protobuf libraries  
+    -->  generates the git_describe.h file
+
+3.  protobuf libraries       ( ommo_build_common )  ( Track branch “proto 分支”)
+
+     --> The batch file (flash_files/generate_protobuf.bat) will pull a .proto file from this repo.
+
+
+9.   git_describe.h
+
+    C:\workspace\ommo_nrf\nRF5_SDK_17.1.0_ddde560\components\ommo\git_describe.h
+
+---
+
+C:\workspace\ommo_nrf\nRF5_SDK_17.1.0_ddde560\examples\ommo\ommo_sensor_test_led_memsic\10298-usbc_3p_mezz_3v0-sensor_test-0p8mm\blank\ses
+
+==================================
+
+1. repo/flash_files/build.ini, specifically around line #9, 
+
+      EMBUILD = "C:\Program Files\SEGGER\SEGGER Embedded Studio for ARM 4.52c\bin\emBuild.exe".
+
+     C:\Program Files\SEGGER\SEGGER Embedded Studio for ARM 7.30\bin\emBuild.exe
+
+
+==========================
+
+Program Size: Code=11656 RO-data=320 RW-data=4 ZI-data=1788     rx
+Program Size: Code=5088   RO-data=320 RW-data=8 ZI-data=1736    tx
+
+4.79k     tx
+5.79k     rx
+
+==========================
+
+#include <stdio.h>           //add for sprintf
+#include "string.h"          //add for memcmp
+
+         itimnum = LL_TIM_GetCounter(TIM17);    
+         sprintf((char*)stemp,":%6d\r\n",itimnum);
+         iputs1((char*)stemp); 
+
+
+
+========================
+
+
+      __set_PRIMASK(1);
+      software_reset();
+
+
+void software_reset(void)
+{
+//
+NVIC_SystemReset();
+}
+
+
+
+================auto download ===============================
+
+C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe
+${workspace_loc:/ommocom/Release}
+-c port=swd -w ommocom.hex -s 0x8000000 #L
+ 
+---
+
+C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe
+${workspace_loc:/prj1/Release}
+-c port=swd -w prj1.elf -s 0x8000000 #L
+
+
+---
+
+C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe
+${workspace_loc:/OpenBootloader/Release}
+-c port=swd -w OpenBootloader.elf -s 0x8000000 #L
+
+
+=====================auto download=======end==================
+
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_OPENDRAIN;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+ 
+---
+ 
+
+memset(itestdata,0,32);
+iputbytes1(itestdata,32);
+ 
+==========================================
+
+Program Size: Code=13284 RO-data=320 RW-data=4 ZI-data=1756  
+
+
+===============
+
+#if (defined TXMODE)    
+   
+  //switch to tx
+  USART1->CR1 &= ~((1<<2) | (1<<3));
+  USART1->CR1 |=  (1<<3);
+  __NOP(); __NOP(); __NOP();   
+  
+#else
+
+  //switch to rx
+  USART1->CR1 &= ~((1<<2) | (1<<3));
+  USART1->CR1 |=  (1<<2);  
+  __NOP(); __NOP(); __NOP();  
+  
+#endif   
+
+==============================
+
+Program Size: Code=8796 RO-data=320 RW-data=8 ZI-data=1744     //tx
+Program Size: Code=11652 RO-data=320 RW-data=4 ZI-data=1788    //rx
+
+
+==================================
+
+
+JumpAddress = *(__IO uint32_t*) (ApplicationAddress + 4);
+
+Jump_To_Application = (pFunction) JumpAddress;
+
+__set_PSP(*(__IO uint32_t*)ApplicationAddress);
+__set_CONTROL(0);
+__set_MSP(*(__IO uint32_t*) ApplicationAddress);
+
+Jump_To_Application();
+
+
+==================
+
+ ommo_sensor_sampler and find 11663 or 11952.
+ 5603 under ommo_sensor_sampler_memsic.
+
+======================
+
+uint8_t flg_resptype=0;
+//    //1 -- FLASHTYPE_SEND_TXINFORM
+//    //2 -- FLASHTYPE_SEND_DATA
+//    //3 -- FLASHTYPE_SEND_CRC 
+//    //10 -- FLASHTYPE_GET_SENSOR_DATA
+    
+uint8_t irespstatus=0;
+//    //1 -- FLASHSTATUS_SEND_TXINFORM
+//    //2 -- FLASHSTATUS_RECEIVE_TXINFORM_RESPONSE
+//    //3 -- FLASHSTATUS_SEND_DATA
+//    //4 -- FLASHSTATUS_RECEIVE_DATA_RESPONSE
+//    //5 -- FLASHSTATUS_SEND_CRC 
+//    //6 -- FLASHSTATUS_RECEIVE_CRC_RESPONSE
+
+
+ 
+
+--------------------
+
+
+#define ADDR_FLASH_BASE          ((uint32_t)0x08000000)  
+#define FLASH_PAGESIZE           ((uint32_t)0x800)           //2K
+
+#define FLASH_START_PAGE         15  
+#define ADDR_FLASH_START_PAGE    ( (uint32_t)(ADDR_FLASH_BASE + FLASH_START_PAGE * FLASH_PAGESIZE) )
+ 
+ 
+========================
+ 
+
+//      NVIC_DisableIRQ(USART1_IRQn);
+//      NVIC_DisableIRQ(EXTI0_1_IRQn);
+//      NVIC_DisableIRQ(EXTI4_15_IRQn);
+      //__set_PRIMASK(1);
+
+
+
+

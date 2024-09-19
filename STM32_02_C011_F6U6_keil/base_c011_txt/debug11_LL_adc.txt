@@ -1,0 +1,326 @@
+
+
+
+
+
+
+
+
+========================adc  init================================
+
+
+main
+
+     MX_GPIO_Init();
+     MX_ADC1_Init();
+
+
+     //CR.28=1，使能adc内部稳压器；CR.31=1, 开启adc的校准；CR.0=1, 使能adc
+     ADC_Activate();
+
+
+ -------------------
+
+ MX_GPIO_Init( ) 
+ 
+     LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
+ 
+ 
+
+-----------------------
+
+
+
+
+MX_ADC1_Init( )
+ 
+      //CCIPR.31-30=00, 设置adc的时钟源位SYSCLK
+      LL_RCC_SetADCClockSource(LL_RCC_ADC_CLKSOURCE_SYSCLK);
+
+     //APBSMENR2.20=1, 使能adc时钟
+      LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC);
+             APBSMENR2 | = 1<<20;   
+
+      //IOPSMENR.0=1，使能PORTA的时钟
+      LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
+ 
+      //初始化adc引脚PA4
+      GPIO_InitStruct.Pin = LL_GPIO_PIN_4;
+      GPIO_InitStruct.Mode = LL_GPIO_MODE_ANALOG;
+      GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+      LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+       #define ADC_CHANNEL_CONF_RDY_TIMEOUT_MS ( 1)
+ 
+      //初始化adc参数，4分频，12位精度，右对齐
+      ADC_InitStruct.Clock = LL_ADC_CLOCK_SYNC_PCLK_DIV4;
+      ADC_InitStruct.Resolution = LL_ADC_RESOLUTION_12B;
+      ADC_InitStruct.DataAlignment = LL_ADC_DATA_ALIGN_RIGHT;
+      ADC_InitStruct.LowPowerMode = LL_ADC_LP_MODE_NONE;
+
+      //配置CFGR1.4-3,5,15=00,0,0， 12位精度，右对齐，无auto-off等； CFGR2.31-30=10，4分频 
+      LL_ADC_Init(ADC1, &ADC_InitStruct); //配置CFGR1, 配置CFGR2
+
+      //CFGR1.21=0,每一位表示一个通道；（待理解）   CFGR1.12=1, 新数据覆盖旧的adc数据
+      LL_ADC_REG_SetSequencerConfigurable(ADC1, LL_ADC_REG_SEQ_CONFIGURABLE);
+
+       //等待ISR.13=1, 上面的通道配置CFGR1已完成
+       while (LL_ADC_IsActiveFlag_CCRDY(ADC1) == 0);
+
+       LL_ADC_ClearFlag_CCRDY(ADC1);  //清 ISR.13=0
+
+       ADC_REG_InitStruct.TriggerSource = LL_ADC_REG_TRIG_SOFTWARE;                         // 或 0<<10, CFGR1 ，不使能外部trigger
+       ADC_REG_InitStruct.SequencerLength = LL_ADC_REG_SEQ_SCAN_DISABLE;              // f<<4， CHSELR  ，   待理解 （是选择adc通道？）
+       ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;       // 0<<16, CFGR1   ，不使能不连续模式
+       ADC_REG_InitStruct.ContinuousMode = LL_ADC_REG_CONV_SINGLE;                        // 0<<13, CFGR1  ，单次触发模式
+       ADC_REG_InitStruct.DMATransfer = LL_ADC_REG_DMA_TRANSFER_NONE;                // 0<<0, CFGR1    ，不使能dma
+       ADC_REG_InitStruct.Overrun = LL_ADC_REG_OVR_DATA_OVERWRITTEN;                   // 1<<12, CFGR1 ， adc用新数据覆盖旧数据
+       LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);    //设置CFGR1
+
+       LL_ADC_SetOverSamplingScope(ADC1, LL_ADC_OVS_DISABLE);                                    //0<<0, CFGR2  , 不使能过采样
+       LL_ADC_SetTriggerFrequencyMode(ADC1, LL_ADC_CLOCK_FREQ_MODE_HIGH);           //0<<29,  CFGR2, 不使能低频率触发
+
+       //SMPR.2-0=110, S 是79.5 cycles
+       LL_ADC_SetSamplingTimeCommonChannels(ADC1, LL_ADC_SAMPLINGTIME_COMMON_1, LL_ADC_SAMPLINGTIME_79CYCLES_5);     //0 ，           6<<0
+
+        //  SMPR.6-4=110,  是79.5 cycles
+      LL_ADC_SetSamplingTimeCommonChannels(ADC1, LL_ADC_SAMPLINGTIME_COMMON_2, LL_ADC_SAMPLINGTIME_79CYCLES_5);     // 4 | (7FFFFF<<8),   6<<0
+
+       LL_ADC_DisableIT_EOC(ADC1);      //IER.2=0, 不使能转换完成中断
+       LL_ADC_DisableIT_EOS(ADC1);       //IER.3=0, 不使能EOS中断
+
+
+        // CR.28=1，使能adc内部稳压器
+       //LL_ADC_EnableInternalRegulator(ADC1);
+              MODIFY_REG( ADCx->CR,  ADC_CR_BITS_PROPERTY_RS,  ADC_CR_ADVREGEN );  //CR.31,4,2,1,0=0000(这5位写0无意义，可省去), CR.28=1，使能adc内部稳压器
+
+
+       while   wait_loop_index--;
+  
+      //功能： CHSELR.4-0 = 4 , 选择第4通道  （已基本验证）         
+      LL_ADC_REG_SetSequencerRanks(ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_4);   //0，  4<<26 | 1<<4   
+
+
+       //等待ISR.13=1, 上面的通道配置CFGR1已完成
+       while (LL_ADC_IsActiveFlag_CCRDY(ADC1) == 0);
+
+       LL_ADC_ClearFlag_CCRDY(ADC1);  //清 ISR.13=0
+
+      //功能 SMPR.12=0, 采用SMP1中的cycles数
+      LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_4, LL_ADC_SAMPLINGTIME_COMMON_1);    //4<<26 | 1<<4   ,0
+ 
+
+---------------------- 
+
+//功能 SMPR.12=0, 采用SMP1中的cycles数
+参数： 4<<26 | 1<<4   ,0
+  LL_ADC_SetChannelSamplingTime(  *ADCx,  Channel,  SamplingTimeY)
+ 
+     MODIFY_REG(ADCx->SMPR,
+             (Channel << ADC_SMPR_SMPSEL0_BITOFFSET_POS),  //8
+             (Channel << ADC_SMPR_SMPSEL0_BITOFFSET_POS) & (SamplingTimeY & ADC_SAMPLING_TIME_CH_MASK)
+            );
+ 
+
+    SMPR &= (Channel << ADC_SMPR_SMPSEL0_BITOFFSET_POS)；
+    SMPR |= (Channel << ADC_SMPR_SMPSEL0_BITOFFSET_POS) & (SamplingTimeY & ADC_SAMPLING_TIME_CH_MASK)；
+
+    SMPR &= (Channel << 8)；
+    SMPR |= (Channel << 8) & (0 & ( (7FFFFF<<0) <<8 ) )；
+
+    SMPR &= ( 1<<4) << 8；
+    SMPR |= (  ( 1<<4) << 8) & 0；
+
+
+
+
+------------------
+
+//功能： CHSELR.4-0 = 4 , 选择第4通道  （待验证）
+参数：0，  4<<26 | 1<<4   
+ LL_ADC_REG_SetSequencerRanks( *ADCx,   Rank,  Channel)
+ 
+  MODIFY_REG(ADCx->CHSELR,
+             ADC_CHSELR_SQ1 << (Rank & ADC_REG_RANK_ID_SQRX_MASK),
+             ((Channel & ADC_CHANNEL_ID_NUMBER_MASK_SEQ) >> ADC_CHANNEL_ID_NUMBER_BITOFFSET_POS) << (Rank & ADC_REG_RANK_ID_SQRX_MASK));
+ 
+CHSELR &= ADC_CHSELR_SQ1 << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
+CHSELR |=  (Channel & ADC_CHANNEL_ID_NUMBER_MASK_SEQ) >> ADC_CHANNEL_ID_NUMBER_BITOFFSET_POS) << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
+
+CHSELR &= （f<<0） << ( 0 & 1f)；
+CHSELR |=  ( [（4<<26 | 1<<4） & ( f<<  26 ) ]>> 26) << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
+CHSELR |=  (  （4<<26  ） >> 26) << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
+
+CHSELR &= f<<0；
+CHSELR |=   4   << (0 & 1f )；   //4<<0
+
+
+------------------------
+
+
+//CFGR1.16,13,10,0=0000 ，不使能不连续模式, 不使能外部trigger, 单次触发模式, 不使能dma ;  CFGR1.12=1, adc用新数据覆盖旧数据
+ LL_ADC_REG_Init(  *ADCx,  *ADC_REG_InitStruct )
+ 
+      //如果CR.0=0, adc未使能，则如下处理
+      if ( CR.0 == 0 )     //adc未使能
+  
+            //如CFGR1.21=0, 不分8组单个输入
+            if ( CFGR1.21 == 0)   ||  (ADC_REG_InitStruct->SequencerLength != f<<4  )   )    //因CFGR1.21=0, 固如下处理
+                   itemp = ADC_REG_InitStruct->SequencerDiscont；  // 0<<16, CFGR1   ，不使能不连续模式
+
+            else   
+                   itemp = LL_ADC_REG_SEQ_DISCONT_DISABLE       // 0<<16, CFGR1   ，不使能不连续模式
+  
+ 
+              MODIFY_REG(   ADCx->CFGR1,
+                                                 ADC_CFGR1_EXTSEL
+                                                 | ADC_CFGR1_EXTEN
+                                                 | ADC_CFGR1_DISCEN
+                                                 | ADC_CFGR1_CONT
+                                                 | ADC_CFGR1_DMAEN
+                                                 | ADC_CFGR1_DMACFG
+                                                 | ADC_CFGR1_OVRMOD
+                                                 ,
+                                                 ADC_REG_InitStruct->TriggerSource               // 0<<10, CFGR1 ，不使能外部trigger
+                                                 | itemp                                                             // 0<<16, CFGR1   ，不使能不连续模式
+                                                 | ADC_REG_InitStruct->ContinuousMode         // 0<<13, CFGR1  ，单次触发模式
+                                                 | ADC_REG_InitStruct->DMATransfer                // 0<<0, CFGR1    ，不使能dma
+                                                 | ADC_REG_InitStruct->Overrun                        // 1<<12, CFGR1 ， adc用新数据覆盖旧数据
+                                             );
+      
+ 
+           //如果CFGR1.21不等于0，则做如下处理
+            if (LL_ADC_REG_GetSequencerConfigurable(ADCx) != LL_ADC_REG_SEQ_FIXED)   //因CFGR1.21=0, 忽略下面
+                  LL_ADC_REG_SetSequencerLength(ADCx, ADC_REG_InitStruct->SequencerLength);    //CHSELR = F<<4, 待理解 （是选择adc通道？）
+     
+
+
+--------------------
+ 
+//CR.28=1，使能adc内部稳压器；CR.31=1, 开启adc的校准；CR.0=1, 使能adc
+ADC_Activate( )
+ 
+      __IO uint32_t wait_loop_index = 0;
+      __IO uint32_t backup_setting_adc_dma_transfer = 0; 
+ 
+      if (LL_ADC_IsEnabled(ADC1) == 0)     //如 CR.0=0, 则如下操作
+     
+            //CR.28=1，使能adc内部稳压器
+            //LL_ADC_EnableInternalRegulator(ADC1);
+                     MODIFY_REG( ADCx->CR,  ADC_CR_BITS_PROPERTY_RS,  ADC_CR_ADVREGEN );  //CR.31,4,2,1,0=0000(这5位写0无意义，可省去), CR.28=1，使能adc内部稳压器
+  
+            //CR.31=1, 开启adc的校准
+            //LL_ADC_StartCalibration(ADC1); 
+                       MODIFY_REG(ADCx->CR, ADC_CR_BITS_PROPERTY_RS,  ADC_CR_ADCAL);      //CR.31,4,2,1,0=0000； CR.31=1, 启动adc校准
+
+            //等待CR.31=0, 完成adc校准 
+            while (LL_ADC_IsCalibrationOnGoing(ADC1) != 0) ;   
+
+            //CR.0=1, 使能adc
+            //LL_ADC_Enable(ADC1); 
+                       MODIFY_REG(ADCx->CR,  ADC_CR_BITS_PROPERTY_RS,  ADC_CR_ADEN);
+
+            //等待ISR.0=1,  adc已准备好采样
+            while (LL_ADC_IsActiveFlag_ADRDY(ADC1) == 0); 
+
+
+
+
+
+
+========================adc read================================
+
+
+main
+
+ 
+     while(1)
+
+              
+              //CR.2=1, 开启adc采样； 等待ISR.2=1, adc采样已完成
+              ConversionStartPoll_ADC_GrpRegular();
+
+              //读取adc数值
+              //iadcdata = LL_ADC_REG_ReadConversionData32(ADC1);
+                       iadcdata  = READ_BIT(ADCx->DR, ADC_DR_DATA)         //iadcdata  = DR & 0xffff
+
+              //计算adc电压值
+              //iadcvol = __LL_ADC_CALC_DATA_TO_VOLTAGE(VDDA_APPLI, iadcdata, LL_ADC_RESOLUTION_12B);
+              //      iadcvol = __LL_ADC_CALC_DATA_TO_VOLTAGE( 3300, iadcdata, 0); 
+                           iadcvol = iadcdata * 3300 / 4095; 
+
+              char str1[30];
+              sprintf(str1,"adcn: %d %d  \r\n",iadcdata, iadcvol  );
+              iputs1(str1);
+ 
+
+---------------------------
+
+//CR.2=1, 开启adc采样； 等待ISR.2=1, adc采样已完成
+ConversionStartPoll_ADC_GrpRegular( )  
+
+      //如果 CR.0=1, CR.1=0, CR.2=0,  adc已使能，没有被取消使能，没有正在采样
+      if ( (LL_ADC_IsEnabled(ADC1) == 1) &&  (LL_ADC_IsDisableOngoing(ADC1) == 0)  && (LL_ADC_REG_IsConversionOngoing(ADC1) == 0)   )
+
+            //CR.2=1, 开启adc采样
+            //LL_ADC_REG_StartConversion(ADC1);
+                   MODIFY_REG(ADCx->CR,   ADC_CR_BITS_PROPERTY_RS,  ADC_CR_ADSTART);
+ 
+      //等待ISR.2=1, adc采样已完成
+      while (LL_ADC_IsActiveFlag_EOC(ADC1) == 0);
+ 
+      //清除标志 ISR.2=0
+      LL_ADC_ClearFlag_EOC(ADC1);    
+
+
+
+
+
+
+===============================参考=====================================
+
+
+ LL_ADC_REG_Init(  *ADCx,  *ADC_REG_InitStruct )
+    
+
+      //如果CFGR1.21不等于0，则做如下处理
+      if (LL_ADC_REG_GetSequencerConfigurable(ADCx) != LL_ADC_REG_SEQ_FIXED) 
+            assert_param(IS_LL_ADC_REG_SEQ_SCAN_LENGTH(ADC_REG_InitStruct->SequencerLength));
+   
+
+      //忽略，跳过
+      if ( CFGR1.21== 0) || (ADC_REG_InitStruct->SequencerLength != LL_ADC_REG_SEQ_SCAN_DISABLE)   )
+   
+             assert_param(IS_LL_ADC_REG_SEQ_SCAN_DISCONT_MODE(ADC_REG_InitStruct->SequencerDiscont));
+             assert_param((ADC_REG_InitStruct->ContinuousMode == LL_ADC_REG_CONV_SINGLE)
+                                                 || (ADC_REG_InitStruct->SequencerDiscont == LL_ADC_REG_SEQ_DISCONT_DISABLE));
+    
+                ......
+
+
+
+------------------------------
+
+MX_ADC1_Init( )
+
+            wait_loop_index = ((LL_ADC_DELAY_INTERNAL_REGUL_STAB_US * (SystemCoreClock / (100000 * 2))) / 10);    // 20*48M/(0.1M*10)=960
+            while(wait_loop_index != 0)
+                  wait_loop_index--;
+
+           //等待延时32个nop
+            wait_loop_index = (ADC_DELAY_CALIB_ENABLE_CPU_CYCLES >> 1);      // 64>>1=32
+            while(wait_loop_index != 0)
+                  wait_loop_index--; 
+
+
+
+------------------------------
+
+           //关闭DMA
+            backup_setting_adc_dma_transfer = LL_ADC_REG_GetDMATransfer(ADC1);
+            LL_ADC_REG_SetDMATransfer(ADC1, LL_ADC_REG_DMA_TRANSFER_NONE); 
+
+            //恢复DMA原来的状态
+            LL_ADC_REG_SetDMATransfer(ADC1, backup_setting_adc_dma_transfer); 
+
+

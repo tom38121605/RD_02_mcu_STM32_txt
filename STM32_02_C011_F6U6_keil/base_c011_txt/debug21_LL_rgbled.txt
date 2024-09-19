@@ -1,0 +1,328 @@
+
+
+
+================================spi 初始化================================
+
+
+main
+
+    //MX_GPIO_Init();
+         __HAL_RCC_GPIOA_CLK_ENABLE();  //3个spi引脚都是 PA口
+
+    MX_SPI1_Init();
+
+
+--------------
+
+ MX_SPI1_Init( )
+
+      hspi1.Instance = SPI1;
+      hspi1.Init.Mode = SPI_MODE_MASTER;
+      hspi1.Init.Direction = SPI_DIRECTION_2LINES;
+      hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+      hspi1.Init.CLKPolarity = SPI_POLARITY_HIGH;
+      hspi1.Init.CLKPhase = SPI_PHASE_2EDGE;
+      hspi1.Init.NSS = SPI_NSS_SOFT;
+      hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+      hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+      hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
+      hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+      hspi1.Init.CRCPolynomial = 7;
+      hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
+      hspi1.Init.NSSPMode = SPI_NSS_PULSE_DISABLE;
+
+      if (HAL_SPI_Init(&hspi1) != HAL_OK) 
+            Error_Handler();
+ 
+        
+
+
+================================发送数据到rgb led================================
+
+
+main
+
+      WS2812B_Task();
+
+
+------------------------
+
+
+WS2812B_Task( )
+ 
+      uint8_t dat = 0;
+      
+      //把ileddata数组，扩展8倍，解释成spi的数组
+      for(uint8_t i = 0; i < RGBLED_COUNT; i++)
+      {
+            WS2812b_Set( i,  ileddata[i].R,  ileddata[i].G,  ileddata[i].B );
+      }
+
+      //spi输出数据到rgb led
+      HAL_SPI_Transmit(&hspi1,  ispidata,  sizeof(ispidata), 0XFFFF);
+
+      //spi输出低电平
+      HAL_SPI_Transmit(&hspi1, &dat, 1,  0XFFFF);   //dat=0
+
+      //低电平大于50us
+      HAL_Delay(1);      
+
+
+-----------
+
+功能：把当前一个小灯的3个字节，转换成24个字节; 并存放在ispidata的相应位置
+参数： i,  ileddata[i].R,  ileddata[i].G,  ileddata[i].B
+WS2812b_Set( inum,   r,  g,  b)
+ 
+      uint8_t *pG = &ispidata[inum* 24];
+      uint8_t *pR = &ispidata[inum* 24 + 8];
+      uint8_t *pB = &ispidata[inum* 24 + 16];
+      
+      for( uint8_t i = 0; i <  8;  i++ )   //把R, G, B 的每一位转换成一个字节
+       
+            if(g & 0x80)  
+                  *pG = CODE_1;                      
+            else             
+                  *pG = CODE_0;
+                    
+            if(r & 0x80)            
+                  *pR = CODE_1;                     
+            else           
+                  *pR = CODE_0;
+                     
+            if(b & 0x80)             
+                  *pB = CODE_1;                      
+            else           
+                  *pB = CODE_0;
+        
+            r <<= 1;
+            g <<= 1;
+            b <<= 1;
+            pR++;
+            pG++;
+            pB++;
+
+
+
+---------------------------------
+
+//待理解
+HAL_SPI_Transmit( *hspi,  *pData,   Size,  Timeout)
+{
+      uint32_t tickstart;
+      HAL_StatusTypeDef errorcode = HAL_OK;
+      uint16_t initial_TxXferCount;
+
+      /* Check Direction parameter */
+      assert_param(IS_SPI_DIRECTION_2LINES_OR_1LINE(hspi->Init.Direction));
+
+      /* Process Locked */
+      __HAL_LOCK(hspi);
+
+      /* Init tickstart for timeout management*/
+      tickstart = HAL_GetTick();
+      initial_TxXferCount = Size;
+
+ 
+      /* Set the transaction information */
+      hspi->State                   = HAL_SPI_STATE_BUSY_TX;
+      hspi->ErrorCode       = HAL_SPI_ERROR_NONE;
+      hspi->pTxBuffPtr      = (uint8_t *)pData;
+      hspi->TxXferSize      = Size;
+      hspi->TxXferCount = Size;
+
+      /*Init field not used in handle to zero */
+      hspi->pRxBuffPtr      = (uint8_t *)NULL;
+      hspi->RxXferSize      = 0U;
+      hspi->RxXferCount = 0U;
+      hspi->TxISR                   = NULL;
+      hspi->RxISR                   = NULL;
+
+      /* Configure communication direction : 1Line */
+      if (hspi->Init.Direction == SPI_DIRECTION_1LINE)
+      {
+            /* Disable SPI Peripheral before set 1Line direction (BIDIOE bit) */
+            __HAL_SPI_DISABLE(hspi);
+            SPI_1LINE_TX(hspi);
+      }
+
+      /* Check if the SPI is already enabled */
+      if ((hspi->Instance->CR1 & SPI_CR1_SPE) != SPI_CR1_SPE)
+      {
+            /* Enable SPI peripheral */
+            __HAL_SPI_ENABLE(hspi);
+      }
+
+      /* Transmit data in 16 Bit mode */
+      if (hspi->Init.DataSize > SPI_DATASIZE_8BIT)
+      {
+            if ((hspi->Init.Mode == SPI_MODE_SLAVE) || (initial_TxXferCount == 0x01U))
+            {
+                  hspi->Instance->DR = *((uint16_t *)hspi->pTxBuffPtr);
+                  hspi->pTxBuffPtr += sizeof(uint16_t);
+                  hspi->TxXferCount--;
+            }
+            /* Transmit data in 16 Bit mode */
+            while (hspi->TxXferCount > 0U)
+            {
+                  /* Wait until TXE flag is set to send data */
+                  if (__HAL_SPI_GET_FLAG(hspi, SPI_FLAG_TXE))
+                  {
+                        hspi->Instance->DR = *((uint16_t *)hspi->pTxBuffPtr);
+                        hspi->pTxBuffPtr += sizeof(uint16_t);
+                        hspi->TxXferCount--;
+                  }
+                  else
+                  {
+                        /* Timeout management */
+                        if ((((HAL_GetTick() - tickstart) >=      Timeout) && (Timeout != HAL_MAX_DELAY)) || (Timeout == 0U))
+                        {
+                              errorcode = HAL_TIMEOUT;
+                              goto error;
+                        }
+                  }
+            }
+      }
+      /* Transmit data in 8 Bit mode */
+      else
+      {
+            if ((hspi->Init.Mode == SPI_MODE_SLAVE) || (initial_TxXferCount == 0x01U))
+            {
+                  if (hspi->TxXferCount > 1U)
+                  {
+                        /* write on the data register in packing mode */
+                        hspi->Instance->DR = *((uint16_t *)hspi->pTxBuffPtr);
+                        hspi->pTxBuffPtr += sizeof(uint16_t);
+                        hspi->TxXferCount -= 2U;
+                  }
+                  else
+                  {
+                        *((__IO uint8_t *)&hspi->Instance->DR) = (*hspi->pTxBuffPtr);
+                        hspi->pTxBuffPtr ++;
+                        hspi->TxXferCount--;
+                  }
+            }
+            while (hspi->TxXferCount > 0U)
+            {
+                  /* Wait until TXE flag is set to send data */
+                  if (__HAL_SPI_GET_FLAG(hspi, SPI_FLAG_TXE))
+                  {
+                        if (hspi->TxXferCount > 1U)
+                        {
+                              /* write on the data register in packing mode */
+                              hspi->Instance->DR = *((uint16_t *)hspi->pTxBuffPtr);
+                              hspi->pTxBuffPtr += sizeof(uint16_t);
+                              hspi->TxXferCount -= 2U;
+                        }
+                        else
+                        {
+                              *((__IO uint8_t *)&hspi->Instance->DR) = (*hspi->pTxBuffPtr);
+                              hspi->pTxBuffPtr++;
+                              hspi->TxXferCount--;
+                        }
+                  }
+                  else
+                  {
+                        /* Timeout management */
+                        if ((((HAL_GetTick() - tickstart) >=      Timeout) && (Timeout != HAL_MAX_DELAY)) || (Timeout == 0U))
+                        {
+                              errorcode = HAL_TIMEOUT;
+                              goto error;
+                        }
+                  }
+            }
+      }
+
+      /* Check the end of the transaction */
+      if (SPI_EndRxTxTransaction(hspi, Timeout, tickstart) != HAL_OK)     
+            hspi->ErrorCode = HAL_SPI_ERROR_FLAG; 
+
+      /* Clear overrun flag in 2 Lines communication mode because received is not read */
+      if (hspi->Init.Direction == SPI_DIRECTION_2LINES)   
+            __HAL_SPI_CLEAR_OVRFLAG(hspi); 
+
+      if (hspi->ErrorCode != HAL_SPI_ERROR_NONE) 
+            errorcode = HAL_ERROR; 
+
+error:
+      hspi->State = HAL_SPI_STATE_READY;
+   
+      __HAL_UNLOCK(hspi);
+      return errorcode;
+}
+
+
+
+========================================参考=======================================
+
+
+#define MMC_SPI SPI1
+
+uint8_t SPI_transfer(uint8_t data)
+{
+      // transmit
+      LL_SPI_TransmitData8(MMC_SPI, data);
+      while(!LL_SPI_IsActiveFlag_TXE(MMC_SPI));
+
+       // receive
+      while(!LL_SPI_IsActiveFlag_RXNE(MMC_SPI));
+      return LL_SPI_ReceiveData8(MMC_SPI);
+
+}
+
+
+
+----------------
+
+uint8_t icm0_read_byte(uint8_t addr)
+{
+   uint8_t value;
+
+   LL_GPIO_ResetOutputPin((GPIO_TypeDef *)GPIOA, LL_GPIO_PIN_2);
+
+   SPI_transfer(0x80|addr );
+   value  = SPI_transfer(0x00);
+
+   LL_GPIO_SetOutputPin((GPIO_TypeDef *)GPIOA, LL_GPIO_PIN_2);
+
+   return value;
+}
+
+void icm0_write_byte(uint8_t addr,  uint8_t value)
+{ 
+   LL_GPIO_ResetOutputPin((GPIO_TypeDef *)GPIOA, LL_GPIO_PIN_2);
+
+   SPI_transfer(addr);
+   SPI_transfer(value);
+
+   LL_GPIO_SetOutputPin((GPIO_TypeDef *)GPIOA, LL_GPIO_PIN_2); 
+}
+
+void icm0_read_bytes(uint8_t addr ,uint8_t length ,uint8_t *buffer)
+{
+   //read data
+   for(int index = 0; index < length; index++)
+   {
+      buffer[index]  = icm0_read_byte(addr+index);
+   } 
+ 
+}
+
+void icm0_readfromspi( uint8_t iaddr, uint8_t ilen, uint8_t *idata)
+{ 
+   LL_GPIO_ResetOutputPin((GPIO_TypeDef *)GPIOA, LL_GPIO_PIN_2);      
+
+   SPI_transfer(0x80 |iaddr);
+
+   while(ilen--)
+   {
+      *idata  = SPI_transfer(0x00);
+      idata++;
+   }
+
+   LL_GPIO_SetOutputPin((GPIO_TypeDef *)GPIOA, LL_GPIO_PIN_2); 
+}
+   
+
+
+

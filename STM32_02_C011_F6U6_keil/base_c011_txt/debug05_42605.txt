@@ -1,0 +1,126 @@
+
+
+
+=========================icm0 init================================
+
+ommo_spi_init( )
+ 
+        spi_device = ICM_0;
+        spi_chip_select(spi_device);
+
+        if(ommo_icm_begin())
+                ommo_icm_0_ready = 1;
+        else
+                ommo_icm_0_ready = 0;
+ 
+        ommo_spi_ready = 1;
+
+
+-----------
+
+ommo_icm_begin()
+
+   if(icm_get_chip_id() != ICM_NAME)
+ 
+       return false;
+ 
+   icm_init();
+   icm_status();
+ 
+
+------------
+
+icm_get_chip_id()
+      return (icm_read_byte(ICM42605_WHO_AM_I));
+ 
+--------
+
+icm_status()
+ 
+   icm_write_byte(ICM42605_REG_BANK_SEL, 0x00);   //set bank0
+   return (icm_read_byte(ICM42605_INT_STATUS));      // istate=2dH
+ 
+
+-------
+
+icm_init()
+
+      uint8_t    Ascale = AFS_2G,                 //3
+                      Gscale = GFS_250DPS;         //3
+
+      uint8_t      AODR = AODR_1000Hz,       //6
+                        GODR = GODR_1000Hz;        //6
+
+   // icm42605
+    icm_write_byte(ICM42605_DEVICE_CONFIG, 0x01);     // 11H.0=1,     reset     //--same
+    icm_delay(100);   
+
+
+    //enable gyro and accel in low noise mode
+    icm_write_byte(ICM42605_PWR_MGMT0, 0x0F);     //  4eH.3-2=11, 4eH.1-0=11, GYRO in LN, ACC in LN 模式       //--same   //低噪声模式
+    icm_delay(1);
+
+    icm_write_byte(ICM42605_GYRO_CONFIG0, GODR | (Gscale << 5) );     //4FH.3-0= 6, 4FH.7-5= 011,   GYRO ODR 1KHz，GYRO FS 250dps     //--chg
+
+    icm_write_byte(ICM42605_ACCEL_CONFIG0, AODR | (Ascale << 5) );     // 50H.3-0= 6, 50H.7-5= 011, ACC ODR 1kHz， ACC FS  2g              //--chg
+
+
+
+    icm_write_byte(ICM42605_GYRO_CONFIG1, 0xD6);         // 51H.7-5=110, 51H.3-2=01, 51H.1-0=10,       5hz 32ms,   2 order,   3 order
+
+    icm_write_byte(ICM42605_INT_CONFIG, 0x03);   //only INT1  // 14H.2-0=011, 脉冲，推挽，高电平  //--INT1相同，INT2不同
+
+    icm_write_byte(ICM42605_INT_CONFIG1, 0x00);  //only INT1  // 64H.4=0, 使能INT1和INT2可正常操作
+
+
+
+    icm_write_byte(ICM42605_INT_SOURCE0, 0x09);   // 65H.3,0=11,  UI DATA READY 关联到INT1, UI AGC 关联到INT1   //--chg
+
+    icm_write_byte(ICM42605_REG_BANK_SEL, 0x04);     //76H.2 -0= 1 , set bank 4     
+    icm_write_byte(ICM42605_APEX_CONFIG5, 0x8F);     // 44H.2-0=111, 设置某种矩阵         //--new
+    icm_write_byte(ICM42605_REG_BANK_SEL, 0x00);   // 76H.2-0 = 0, set bank0
+
+
+
+
+========================icm0 read==================================
+
+
+ommo_spi_task( )
+
+   if(ommo_icm_0_ready)
+       icm_status();
+       icm_read_xyz(icm_0_data);
+
+
+void icm_read_xyz(uint8_t *data)
+{
+   icm_write_byte(ICM42605_REG_BANK_SEL, 0x00); //set bank0
+   icm_read_bytes(ICM42605_ACCEL_DATA_X1, 12, data);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

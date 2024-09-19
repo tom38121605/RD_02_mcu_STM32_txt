@@ -1,0 +1,199 @@
+
+#define ADC_SAMPLING_TIME_CH_MASK          (ADC_CHANNEL_ID_BITFIELD_MASK << ADC_SMPR_SMPSEL0_BITOFFSET_POS)   // (7FFFFF<<0) <<8
+
+#define ADC_CHANNEL_ID_BITFIELD_MASK       (ADC_CHSELR_CHSEL)   //7FFFFF<<0
+#define ADC_CHSELR_CHSEL_Pos           (0U)
+#define ADC_CHSELR_CHSEL_Msk           (0x7FFFFFUL << ADC_CHSELR_CHSEL_Pos)    /*!< 0x0007FFFFF */
+#define ADC_CHSELR_CHSEL               ADC_CHSELR_CHSEL_Msk  
+
+
+#define ADC_SMPR_SMPSEL0_BITOFFSET_POS     ( 8UL) 
+
+
+------
+
+#define LL_ADC_SAMPLINGTIME_COMMON_1       (ADC_SMPR_SMP1_BITOFFSET_POS)     //0
+#define ADC_SMPR_SMP1_BITOFFSET_POS        ( 0UL)
+
+
+-------------
+
+
+#define ADC_REG_RANK_ID_SQRX_MASK          (ADC_CHANNEL_ID_NUMBER_MASK_POSBIT0)  //1f
+#define ADC_CHANNEL_ID_NUMBER_MASK_POSBIT0 (0x0000001FUL) 
+
+
+#define ADC_CHANNEL_ID_NUMBER_MASK_SEQ     (ADC_CHSELR_SQ1 << ADC_CHANNEL_ID_NUMBER_BITOFFSET_POS)   // ( f<<0) << 26
+#define ADC_CHANNEL_ID_NUMBER_BITOFFSET_POS (26UL)
+
+
+
+#define ADC_CHSELR_SQ1_Pos             (0U)
+#define ADC_CHSELR_SQ1_Msk             (0xFUL << ADC_CHSELR_SQ1_Pos)      
+#define ADC_CHSELR_SQ1                    ADC_CHSELR_SQ1_Msk                    //f<<0
+
+-----------
+
+#define ADC_REG_RANK_ID_SQRX_MASK          (ADC_CHANNEL_ID_NUMBER_MASK_POSBIT0)   //1f
+#define ADC_CHANNEL_ID_NUMBER_MASK_POSBIT0 (0x0000001FUL)
+
+--------
+
+#define LL_ADC_REG_RANK_1                  (ADC_REG_RANK_1_SQRX_BITOFFSET_POS)     //0
+#define ADC_REG_RANK_1_SQRX_BITOFFSET_POS  ( 0UL)
+
+
+
+------
+
+#define LL_ADC_CHANNEL_7                   (ADC_CHANNEL_7_NUMBER  | ADC_CHANNEL_7_BITFIELD )    //7<<26 | 1<<7
+#define ADC_CHANNEL_7_BITFIELD             (ADC_CHSELR_CHSEL7)
+
+
+#define ADC_CHSELR_CHSEL7_Pos          (7U)
+#define ADC_CHSELR_CHSEL7_Msk          (0x1UL << ADC_CHSELR_CHSEL7_Pos)        /*!< 0x00000080 */
+#define ADC_CHSELR_CHSEL7              ADC_CHSELR_CHSEL7_Msk  
+--------
+
+#define LL_ADC_CHANNEL_4                   (ADC_CHANNEL_4_NUMBER  | ADC_CHANNEL_4_BITFIELD )  //4<<26 | 1<<4
+
+#define ADC_CHANNEL_4_NUMBER               (ADC_CFGR1_AWD1CH_2)                    //4<<26
+
+#define ADC_CFGR1_AWD1CH_Pos           (26U)
+#define ADC_CFGR1_AWD1CH_2             (0x04UL << ADC_CFGR1_AWD1CH_Pos)  
+
+#define ADC_CHANNEL_4_BITFIELD             (ADC_CHSELR_CHSEL4)                          //1<<4
+#define ADC_CHSELR_CHSEL4_Pos          (4U)
+#define ADC_CHSELR_CHSEL4_Msk          (0x1UL << ADC_CHSELR_CHSEL4_Pos)     
+#define ADC_CHSELR_CHSEL4              ADC_CHSELR_CHSEL4_Msk    
+
+-------------------------
+
+
+
+#define ADC_CFGR1_CHSELRMOD_Pos        (21U)
+#define ADC_CFGR1_CHSELRMOD_Msk        (0x1UL << ADC_CFGR1_CHSELRMOD_Pos)      /*!< 0x00200000 */
+#define ADC_CFGR1_CHSELRMOD            ADC_CFGR1_CHSELRMOD_Msk   
+
+#define LL_ADC_REG_SEQ_FIXED               (0x00000000UL)    
+
+
+#define LL_ADC_SAMPLINGTIME_COMMON_2       (ADC_SMPR_SMP2_BITOFFSET_POS | ADC_SAMPLING_TIME_CH_MASK) 
+    #define LL_ADC_SAMPLINGTIME_COMMON_2       (4 | (7FFFFF<<0 )<<8 )    // 4 | (7FFFFF<<8)
+
+#define ADC_SAMPLING_TIME_CH_MASK          (ADC_CHANNEL_ID_BITFIELD_MASK << ADC_SMPR_SMPSEL0_BITOFFSET_POS)   //(7FFFFF<<0 )<<8
+#define ADC_CHANNEL_ID_BITFIELD_MASK       (ADC_CHSELR_CHSEL)   //7FFFFF<<0
+
+-------------------------------------------------------------------------------
+
+ #define     __IO    volatile   
+
+__IO uint16_t         iadcdata =   VAR_CONVERTED_DATA_INIT_VALUE;   //0x1000
+uint16_t                 iadcvol   =   0; 
+
+
+------
+
+#define  LL_RCC_ADC_CLKSOURCE_SYSCLK   0 
+
+#define LL_APB2_GRP1_PERIPH_ADC            RCC_APBENR2_ADCEN
+
+#define RCC_APBENR2_ADCEN_Pos            (20U)
+#define RCC_APBENR2_ADCEN_Msk            (0x1UL << RCC_APBENR2_ADCEN_Pos)       /*!< 0x00100000 */
+#define RCC_APBENR2_ADCEN                RCC_APBENR2_ADCEN_Msk
+
+
+      LL_ADC_InitTypeDef                ADC_InitStruct = {0};
+      LL_ADC_REG_InitTypeDef        ADC_REG_InitStruct = {0};
+      LL_GPIO_InitTypeDef               GPIO_InitStruct = {0};
+
+------
+
+#define ADC_CR_BITS_PROPERTY_RS            (ADC_CR_ADCAL | ADC_CR_ADSTP | ADC_CR_ADSTART | ADC_CR_ADDIS | ADC_CR_ADEN)  //bit31,4,2,1,0=1111
+
+#define ADC_CR_ADVREGEN_Pos            (28U)
+#define ADC_CR_ADVREGEN_Msk            (0x1UL << ADC_CR_ADVREGEN_Pos)          /*!< 0x10000000 */
+#define ADC_CR_ADVREGEN                ADC_CR_ADVREGEN_Msk  
+
+
+------
+
+  uint32_t SystemCoreClock = 48000000UL;
+#define LL_ADC_DELAY_INTERNAL_REGUL_STAB_US ( 20UL) 
+
+
+#define LL_ADC_DELAY_CALIB_ENABLE_ADC_CYCLES   (  2UL) 
+
+#define ADC_DELAY_CALIB_ENABLE_CPU_CYCLES  (LL_ADC_DELAY_CALIB_ENABLE_ADC_CYCLES * 32)      //64
+
+
+
+
+--------------------------------------------------------------------------------
+
+#define SET_BIT(REG, BIT)     ((REG) |= (BIT))
+
+#define CLEAR_BIT(REG, BIT)   ((REG) &= ~(BIT))
+
+#define READ_BIT(REG, BIT)    ((REG) & (BIT))
+
+#define CLEAR_REG(REG)        ((REG) = (0x0))
+
+#define WRITE_REG(REG, VAL)   ((REG) = (VAL))
+
+#define READ_REG(REG)             ((REG))
+
+#define MODIFY_REG(REG, CLEARMASK, SETMASK)        WRITE_REG((REG), (((READ_REG(REG)) & (~(CLEARMASK))) | (SETMASK)))
+
+
+--------------------------------------------
+
+#define __LL_ADC_DIGITAL_SCALE( __ADC_RESOLUTION__ )       0xFFF  >> (  (0) >> (3- 1 )  )  
+#define ADC_CFGR1_RES_BITOFFSET_POS          3 
+
+------------------------------------------
+
+
+u32  LL_ADC_IsEnabled( *ADCx )
+ 
+     return (    (  READ_BIT(ADCx->CR, ADC_CR_ADEN) ==  ADC_CR_ADEN   ) ? 1  :  0  );      //如果 CR.0 =1, 则返回1； 如为0， 则返回0
+
+
+u32  LL_ADC_IsCalibrationOnGoing( *ADCx)
+ 
+     return ((READ_BIT(ADCx->CR, ADC_CR_ADCAL) == (ADC_CR_ADCAL)) ? 1UL : 0UL);      //如果 CR.31 =1, 则返回1； 如为0， 则返回0
+ 
+
+u32  LL_ADC_IsActiveFlag_ADRDY(   *ADCx)
+ 
+      return ((READ_BIT(ADCx->ISR, LL_ADC_FLAG_ADRDY) == (LL_ADC_FLAG_ADRDY)) ? 1UL : 0UL);   //如果 ISR.0 =1, 则返回1； 如为0， 则返回0
+ 
+
+ #define   __LL_ADC_CALC_DATA_TO_VOLTAGE(__VREFANALOG_VOLTAGE__,   __ADC_DATA__,    __ADC_RESOLUTION__)           
+                (__ADC_DATA__) * (__VREFANALOG_VOLTAGE__)  / __LL_ADC_DIGITAL_SCALE(__ADC_RESOLUTION__)    
+
+
+ LL_APB2_GRP1_EnableClockStopSleep( Periphs)
+ 
+      __IO uint32_t tmpreg;
+      SET_BIT(RCC->APBSMENR2, Periphs);
+
+      tmpreg = READ_BIT(RCC->APBSMENR2, Periphs);
+      (void)tmpreg;
+ 
+
+u32   LL_ADC_REG_GetSequencerConfigurable(  *ADCx )
+ 
+           return   (READ_BIT(ADCx->CFGR1, ADC_CFGR1_CHSELRMOD));
+ 
+
+ LL_ADC_SetSamplingTimeCommonChannels( *ADCx,   SamplingTimeY,  SamplingTime)
+  MODIFY_REG(ADCx->SMPR,
+             ADC_SMPR_SMP1 << (SamplingTimeY & ADC_SAMPLING_TIME_SMP_SHIFT_MASK),
+             SamplingTime << (SamplingTimeY & ADC_SAMPLING_TIME_SMP_SHIFT_MASK));
+ 
+    SMPR &=     (7<<0) << ( 4 | (7FFFFF<<8)  & 4)  ;      //7<< 4
+    SMPR |=       (6<<0)  << (4 | (7FFFFF<<8) & 4);         //6<<4
+ 
+
+

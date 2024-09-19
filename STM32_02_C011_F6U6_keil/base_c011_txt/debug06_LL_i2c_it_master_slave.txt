@@ -1,0 +1,124 @@
+---------------------------------------------主机------------------------------------------------------------------
+
+
+Handle_I2C_Master(void)
+{
+
+  LL_I2C_HandleTransfer(I2C1, SLAVE_OWN_ADDRESS, LL_I2C_ADDRSLAVE_7BIT, 1, LL_I2C_MODE_AUTOEND, LL_I2C_GENERATE_START_READ);   //读取请求  --.> 从机的   LL_I2C_DIRECTION_READ
+
+}
+
+
+
+---------------------------------------------从机在中断中接收数据------------------------------------------------------------------
+
+从机发送数据：
+
+ { SLA + 7Bit + 设发送长度len + autoend + Start + R }  --   (从机地址已匹配 + R标志 + 清地址匹配标志 + ack)  + (TXIS + data1  ) -- { RXNE + ack } 
+  ......  + (TXIS + datan  )  -- { RXNE + /ack + stop}
+
+
+-----------------------------
+
+I2C1_IRQHandler(void)
+{
+  /* Check ADDR flag value in ISR register */
+	if (LL_I2C_IsActiveFlag_ADDR(I2C1))
+	{
+		/* Verify the Address Match with the OWN Slave address */
+		if (LL_I2C_GetAddressMatchCode(I2C1) == SLAVE_OWN_ADDRESS)
+		{
+			/* Verify the transfer direction, a read direction, Slave enters transmitter mode */
+			if (LL_I2C_GetTransferDirection(I2C1) == LL_I2C_DIRECTION_READ)     //如果主机发送的是读请求标志，则如下处理
+			 
+				/* Clear ADDR flag value in ISR register */
+				LL_I2C_ClearFlag_ADDR(I2C1);
+
+				/* Enable Transmit Interrupt */
+				LL_I2C_EnableIT_TX(I2C1);           //使能TXIS中断			 
+			else
+			 
+				/* Clear ADDR flag value in ISR register */
+				LL_I2C_ClearFlag_ADDR(I2C1);
+
+				/* Call Error function */
+				Error_Callback();
+			 
+		}
+		else
+		{
+			/* Clear ADDR flag value in ISR register */
+			LL_I2C_ClearFlag_ADDR(I2C1);
+
+			/* Call Error function */
+			Error_Callback();
+		}
+	}
+
+	/* Check NACK flag value in ISR register */
+	else if (LL_I2C_IsActiveFlag_NACK(I2C1))
+	{
+		/* End of Transfer */
+		LL_I2C_ClearFlag_NACK(I2C1);
+	}
+	/* Check TXIS flag value in ISR register */
+	else if (LL_I2C_IsActiveFlag_TXIS(I2C1))
+	{
+		/* Call function Slave Ready to Transmit Callback */
+		Slave_Ready_To_Transmit_Callback();                                       //收到TXIS标志，从机发送数据给主机
+	}
+
+
+-------------
+
+void Slave_Ready_To_Transmit_Callback(void)
+{
+  /* Send the Byte requested by the Master */
+  LL_I2C_TransmitData8(I2C1, SLAVE_BYTE_TO_SEND);
+}
+
+
+
+---------------------------------------------主机------------------------------------------------------------------
+
+
+
+ I2C1_IRQHandler(void)
+ 
+ 
+	if (LL_I2C_IsActiveFlag_RXNE(I2C1))	 
+ 
+		Master_Reception_Callback();            //主机接收数据                          
+	 
+ 
+	else if (LL_I2C_IsActiveFlag_STOP(I2C1))	 //主机autoend出发stop
+ 
+		LL_I2C_ClearFlag_STOP(I2C1);
+ 
+		Master_Complete_Callback();         
+ 
+ 
+
+-----------
+
+void Master_Reception_Callback(void)
+{
+     aReceiveBuffer[ubReceiveIndex++] = LL_I2C_ReceiveData8(I2C1);
+}
+
+
+-----
+
+#define SLAVE_BYTE_TO_SEND       (uint8_t)0xA5
+
+Master_Complete_Callback(void)
+ 
+  if (aReceiveBuffer[ubReceiveIndex - 1] == SLAVE_BYTE_TO_SEND)
+  {
+
+    LED_On();
+  }
+ 
+
+
+

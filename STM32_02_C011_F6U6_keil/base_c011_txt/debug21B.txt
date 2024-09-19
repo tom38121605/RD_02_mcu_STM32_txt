@@ -1,0 +1,37 @@
+
+
+//ws2812   (6M）
+#define CODE_0            0xC0    // 11000000     // x - 0.25 - 0.47us   （0.333us）   //0码的高电平时间必须小于0.47us
+#define CODE_1            0xF8     // 11111000     // 0.58 - 0.85 - 1us   （0.833us）   //1码的高电平时间必须大于0.58us
+
+
+//PI55TAT  (6M）
+#define CODE_0            0xC0    // 11000000      //x - 0.3us - x  （0.333us）
+#define CODE_1            0xF8     // 11111000      //x - 0.9us - x  （0.833us）
+
+
+typedef struct
+{
+  uint8_t R;
+  uint8_t G;
+  uint8_t B;
+} tWs2812bCache_TypeDef;
+
+
+
+#define RGBLED_COUNT         8
+
+tWs2812bCache_TypeDef         ileddata[RGBLED_COUNT] = 
+{
+    //R    G      B
+    0XFF, 0X00, 0X00,   //0
+    0X00, 0XFF, 0X00,   //1
+    0X00, 0X00, 0XFF,   //2
+    0X00, 0XFF, 0XFF,   //3
+    0XFF, 0X00, 0XFF,  //4
+    0XFF, 0XFF, 0X00,   //5
+    0XFF, 0XFF, 0XFF,   //6
+    0X00, 0X00, 0X00,  //7
+};
+
+

@@ -1,0 +1,304 @@
+
+1. MMC0初始化
+2. 读取MMC0数据
+3. 发送MMC0数据
+
+==========================MMC0初始化===================================
+
+flow：
+
+     ommo_spi_init -->  ommo_mmc_begin -->  mmc_get_chip_id  -->  mmc_reset  -->  mmc_init  -->  mmc_clear_int
+
+
+--------------------------------------------------------
+
+main(void)
+
+    ommo_spi_init( )；
+
+
+-------
+
+ommo_spi_init( )
+ 
+        LL_SPI_Enable(SPI1);
+ 
+        spi_device = MMC_0;
+        spi_chip_select(MMC_0);
+
+        if(ommo_mmc_begin(MMC_0))
+                ommo_mmc_0_ready = 1; 
+        else
+                ommo_mmc_0_ready = 0;
+
+ 
+        ommo_spi_ready = 1;
+ 
+
+------
+
+spi_chip_select(  device_id)
+ 
+        if(device_id == MMC_0)
+                spi_cs_port = MMC_CS0_Port;
+                spi_cs_pin = MMC_CS0_Pin;
+ 
+        if(device_id == ICM_0)
+                spi_cs_port = ICM_CS0_Port;
+                spi_cs_pin = ICM_CS0_Pin;
+
+
+---------------
+
+#define MSET_100              0x03
+#define MODR_100Hz        0x05
+#define MBW_100Hz          0x00     // 8 ms  
+
+ ommo_mmc_begin( mmc_id)
+ 
+        if(mmc_get_chip_id() != MMC5983MA_ADDRESS) 
+                return false;
+       
+        //mmc_reset();     //CONTROL_1.7=1, 重新复位传感器芯片
+           mmc_write_byte(MMC5983MA_CONTROL_1, 0x80);   
+           mmc_delay(15);
+
+        uint8_t  MODR = MODR_100Hz（05h）, MBW = MBW_100Hz（00h）, MSET = MSET_100;  //数值看最新版本
+
+      //mmc_init(MODR, MBW, MSET);
+      mmc_write_byte(MMC5983MA_CONTROL_0, 0x20 | 0x04);       //09h.5,2=1,1,    自动set/reset, 使能完成测量中断
+      mmc_write_byte(MMC5983MA_CONTROL_1, MBW);                 //0AH.1-0=00,  100Hz  ,8ms
+      //mmc_write_byte(MMC5983MA_CONTROL_2, 0x08 | MODR);    //0BH.3=1 ，0BH.2-0=5,   使能连续模式,   100Hz
+      mmc_write_byte(MMC5983MA_CONTROL_2, 0x88 | MODR |(MSET << 4));   //0BH.3=1 ，0BH.2-0=5,   使能连续模式,   1000Hz, 1000Hz
+
+      //mmc_clear_int();   //如果STATUS.0=1，则写1清零bit0 (测量完成标志)
+              uint8_t temp = mmc_read_byte(MMC5983MA_STATUS);
+              mmc_write_byte(MMC5983MA_STATUS, temp & 0x01);
+  
+
+
+============================================读取MMC0数据===============================================
+
+flow：
+
+TIM1_BRK_UP_TRG_COM_IRQHandler --> (timer1_flag = 1) -->  ommo_timer1_task --> (ommo_timer_spi_flag = 1)
+
+ommo_spi_task --> (ommo_timer_spi_flag=1)  --> ommo_read_mmc_data  -->  ommo_read_mmc_data
+
+
+--------------------------------------------------------------------------------
+
+main()
+
+
+  while (1)
+
+      ommo_timer1_task();
+
+      ommo_spi_task( );
+
+
+-----------------------------------------------
+
+TIM1_BRK_UP_TRG_COM_IRQHandler( )
+
+    //TimerUpdate_Callback();
+	timer1_flag = 1;
+
+------
+
+ommo_timer1_task( )
+
+    if(timer1_flag) 
+        spi_cnt++;
+
+    if( spi_cnt == (TIMER_SPI_INTERVAL/ TIMER_INTERVAL) )     //  1 / 1
+ 
+        ommo_timer_spi_flag = 1; 
+        spi_cnt = 0;
+ 
+
+----------------------
+
+ommo_spi_task(void)
+
+      static uint8_t mmc_cnt0 = 0;
+ 
+      if(ommo_timer_spi_flag)
+
+            ommo_timer_spi_flag = 0;
+ 
+            if(ommo_mmc_0_ready)
+             
+                  spi_device = MMC_0;
+                  spi_chip_select(spi_device);
+
+                  ommo_read_mmc_data(mmc_0_data);
+
+                  if(new_mmc_0_data)
+                   
+                        //printf("MMC%d: %d\r\n ",MMC_0,new_mmc_0_data);
+                        new_mmc_0_data = 0;
+
+                        mmc_cnt0++;
+                        if(mmc_cnt0 == 100)                        
+                              mmc_cnt0 = 0;                         
+ 
+ 
+----------
+
+ommo_read_mmc_data( *data )
+
+      mmc_clear_int();
+
+      //mmc_read_data(data);
+         mmc_read_bytes(MMC5983MA_XOUT_0, 7, &destination[0]); 
+
+
+
+
+===========================发送传感器数据=====================================
+
+flow: 
+
+   USART1_IRQHandler --> USART_CharReception_Callback --> LL_TIM_GetCounter --> ommo_send_data_out
+
+
+---------------------------------------
+
+void TIM17_IRQHandler(void)  //1us * 65535    //暂未用到
+{
+   ;
+}
+
+uint32_t LL_TIM_GetCounter(const TIM_TypeDef *TIMx)   //准备数据
+ 
+  return  READ_REG(TIMx->CNT);  //或1us每步
+ 
+
+--------------------------------
+
+USART1_IRQHandler( )
+  
+      if(ommo_mode == RX_MODE)
+      
+      if (LL_USART_IsActiveFlag_RXNE(USART1) && LL_USART_IsEnabledIT_RXNE(USART1))
+  
+           USART_CharReception_Callback();         
+ 
+
+-----------
+
+USART_CharReception_Callback( )
+
+       temp = LL_USART_ReceiveData8(USART1);
+
+       switch(rx_status)
+ 
+            case RX_IDLE:
+            break;
+
+            case RX_PREPARE:
+            break;
+
+            case RX_START:
+            break;
+
+            case RX_ENDING:
+
+               if(temp == rx_end_cmd[1])
+
+                   start_report = 1;
+
+                   uint16_t timer17_cnt = LL_TIM_GetCounter(TIM17);   //或1us每步 
+
+                   timer_1m_cnt[0] = timer17_cnt;
+                   timer_1m_cnt[1] = timer17_cnt >>8;
+                   ommo_send_data_out();
+
+                   start_report = 0;
+
+              rx_status = RX_IDLE;
+ 
+
+------
+
+ommo_send_data_out()
+
+      for(index = 0; index<2;index++)//start
+
+          report_data[index] = report_start_cmd[index];
+
+      for(index = 0; index<7;index++)  //MMC0
+
+          report_data[index+2] = mmc_0_data[index];
+
+      ......
+
+      for(index = 0; index< REPORT_LENGTH;index++)
+
+          while(LL_USART_IsActiveFlag_TXE(USART1) != 1);
+          LL_USART_TransmitData8(USART1,report_data[index]);
+
+
+
+
+
+===========================参考=======暂未用到=================================
+
+void EXTI0_1_IRQHandler(void)
+{
+ 
+  if (LL_EXTI_IsActiveRisingFlag_0_31(LL_EXTI_LINE_0) != RESET)
+  {
+    LL_EXTI_ClearRisingFlag_0_31(LL_EXTI_LINE_0);
+    /* USER CODE BEGIN LL_EXTI_LINE_0_RISING */
+  
+ 
+    if(ommo_spi_ready)
+    {
+ 
+                new_mmc_0_data++;
+ 
+    }
+ 
+ 
+    /* USER CODE END LL_EXTI_LINE_0_RISING */
+  }
+  if (LL_EXTI_IsActiveRisingFlag_0_31(LL_EXTI_LINE_1) != RESET)
+  {
+    LL_EXTI_ClearRisingFlag_0_31(LL_EXTI_LINE_1);
+    /* USER CODE BEGIN LL_EXTI_LINE_1_RISING */
+ 
+ 
+    if(ommo_spi_ready)
+    {
+ 
+                new_mmc_1_data++;
+ 
+    }
+ 
+    /* USER CODE END LL_EXTI_LINE_1_RISING */
+  }
+ 
+}
+ 
+void EXTI4_15_IRQHandler(void)
+{
+ 
+
+  if (LL_EXTI_IsActiveRisingFlag_0_31(LL_EXTI_LINE_7) != RESET)
+  {
+    LL_EXTI_ClearRisingFlag_0_31(LL_EXTI_LINE_7);
+    /* USER CODE BEGIN LL_EXTI_LINE_7_RISING */
+    if(ommo_spi_ready)
+ 
+                new_icm_0_data++;
+  
+    /* USER CODE END LL_EXTI_LINE_7_RISING */
+  }
+
+ 
+}
+
+
