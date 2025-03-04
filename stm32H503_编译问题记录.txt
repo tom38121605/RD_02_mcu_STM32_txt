@@ -1,0 +1,44 @@
+
+
+1.  生成KEIL工程后，编译出现下面的问题  （ok）
+    ArmClang: error: no such file or directory: '../../../../../../Drivers/BSP/STM32H5xx_Nucleo/stm32h5xx_nucleo.c'
+答： 步骤如下：
+    。把sdk中的中的BSP目录（目录1）拷贝到现在的工程目录（目录2）
+        目录1： D:\test3\STM32Cube_FW_H5_V1.1.1\Drivers\BSP
+        目录2： D:\stm32_h5_test\I3C_sensor_dma\I3C_Sensor_Direct_Command_DMA\Drivers
+    。在工程内remove文件stm32h5xx_nucleo.c， 然后再重新添加目录2里面的stm32h5xx_nucleo.c文件
+
+2.   生成KEIL工程后，编译出现下面的问题  （ok）
+     ArmClang: error: no such file or directory: '../../../../../../Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_exti.c'
+     ArmClang: error: no such file or directory: '../../../../../../Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_util_i3c.c'
+答： 类似上面，步骤如下：
+    。先把目录1中的stm32h5xx_util_i3c.c和.h文件，拷贝到目录2
+    。在工程内remove文件 stm32h5xx_util_i3c.c， 然后再重新添加目录2里面的 stm32h5xx_util_i3c.c 文件
+
+3.   生成KEIL工程后，编译出现下面的问题  （ok）
+     ../Inc\main.h(40): error: 'stm32h5xx_nucleo.h' file not found
+答： keil的魔法棒 --  c/c++  --  添加include目录如下：
+      ..\Drivers\BSP\STM32H5xx_Nucleo
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+
