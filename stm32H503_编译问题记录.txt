@@ -1,6 +1,33 @@
 
 
-1.  生成KEIL工程后，编译出现下面的问题  （ok）
+==========keil=============
+
+
+keil 新工程如下处理，可避开下面大部分问题：
+
+   1).在MX中重新生成keil工程
+       . 在project Manager的第1栏，选中mdk-arm
+       . 在project Manager的第2栏，选中 copy only the necessary library files
+       . 在project Manager的第2栏，勾选 “c/h”files
+
+   2). 把SDK的下面的Drivers/BSP目录（目录1）， 拷贝到当前工程的Drivers相应目录（目录2）
+      。在工程内remove上面目录1的stm32h5xx_nucleo.c 文件， 
+      。然后再重新添加目录2的stm32h5xx_nucleo.c  文件
+       。在keil的魔法棒 --  c/c++  --  添加include目录如下：
+          ..\Drivers\BSP\STM32H5xx_Nucleo
+
+   3). 把SDK的下面文件从Drivers/STM32H5xx_HAL_Driver/Src目录（目录1）， 拷贝到当前工程的Drivers相应目录（目录2）
+       。stm32h5xx_hal_exti.c （.h）
+      。stm32h5xx_util_i3c.c （.h）
+      。在工程内remove上面目录1的.c文件， 
+      。然后再重新添加目录2的.c 文件
+
+
+
+
+----问题----
+
+1.  生成KEIL工程后，编译出现下面的no such file问题  （ok）
     ArmClang: error: no such file or directory: '../../../../../../Drivers/BSP/STM32H5xx_Nucleo/stm32h5xx_nucleo.c'
 答： 步骤如下：
     。把sdk中的中的BSP目录（目录1）拷贝到现在的工程目录（目录2）
@@ -8,14 +35,14 @@
         目录2： D:\stm32_h5_test\I3C_sensor_dma\I3C_Sensor_Direct_Command_DMA\Drivers
     。在工程内remove文件stm32h5xx_nucleo.c， 然后再重新添加目录2里面的stm32h5xx_nucleo.c文件
 
-2.   生成KEIL工程后，编译出现下面的问题  （ok）
+2.   生成KEIL工程后，编译出现下面的no such file or directory问题  （ok）
      ArmClang: error: no such file or directory: '../../../../../../Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_exti.c'
      ArmClang: error: no such file or directory: '../../../../../../Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_util_i3c.c'
 答： 类似上面，步骤如下：
     。先把目录1中的stm32h5xx_util_i3c.c和.h文件，拷贝到目录2
     。在工程内remove文件 stm32h5xx_util_i3c.c， 然后再重新添加目录2里面的 stm32h5xx_util_i3c.c 文件
 
-3.   生成KEIL工程后，编译出现下面的问题  （ok）
+3.   生成KEIL工程后，编译出现下面的 file not found问题  （ok）
      ../Inc\main.h(40): error: 'stm32h5xx_nucleo.h' file not found
 答： keil的魔法棒 --  c/c++  --  添加include目录如下：
       ..\Drivers\BSP\STM32H5xx_Nucleo
@@ -32,13 +59,13 @@
 ==========cubeide=============
 
 
-1. 生成cube工程后，编译出现下面的问题  
+1. 生成cube工程后，编译出现下面的warning  
    ../Inc/stm32h5xx_hal_conf.h:186: warning: "VDD_VALUE" redefined
 
   186 | #define  VDD_VALUE                  3300UL 
-答： 打开工程的properties里面的setting里的preprocessor
+答： 打开工程的properties里面的C/c++build... 的setting里的preprocessor
       删除  VDD_VALUE =3300
-
+      删除  PREFETCH_ENABLE
 
 
 
