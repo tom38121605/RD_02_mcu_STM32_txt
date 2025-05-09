@@ -16,12 +16,13 @@ keil 新工程如下处理，可避开下面大部分问题：
        。在keil的魔法棒 --  c/c++  --  添加include目录如下：
           ..\Drivers\BSP\STM32H5xx_Nucleo
 
-   3). 把SDK的下面文件从Drivers/STM32H5xx_HAL_Driver/Src目录（目录1）， 拷贝到当前工程的Drivers相应目录（目录2）
+   3). 把SDK的下面文件从Drivers/STM32H5xx_HAL_Driver/Src目录（目录1）， 拷贝到当前工程的Drivers相应目录（目录2） 
        。stm32h5xx_hal_exti.c （.h）
       。stm32h5xx_util_i3c.c （.h）
       。在工程内remove上面目录1的.c文件， 
       。然后再重新添加目录2的.c 文件
 
+     补充： 通常这两个文件已有，这一步的copy可忽略
 
 
 
