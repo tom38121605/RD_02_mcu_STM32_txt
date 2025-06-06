@@ -1,4 +1,4 @@
-
+﻿
 =======================uart5初始化=============================
 
 
@@ -503,7 +503,6 @@ HAL_UART_Transmit_DMA(*huart,   *pData,   Size)  //或注释，待验证
     __HAL_UART_CLEAR_FLAG(huart, UART_CLEAR_TCF);
     __HAL_UNLOCK(huart);
 
-    /* Enable the DMA transfer for transmit request by setting the DMAT bit     in the UART CR3 register */
     ATOMIC_SET_BIT( UART5->CR3, USART_CR3_DMAT);   //CR3.7=1, 开启UART5的dma传送
 
  
@@ -523,7 +522,7 @@ HAL_DMA_Start_IT(  *hdma, SrcAddress,   DstAddress, DataLength)
           //设置dma的数据长度，非双缓冲，起始地址，目标地址，清除中断状态
           DMA_SetConfig(hdma, SrcAddress, DstAddress, DataLength);
 
-          if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0 )  /* DMA1 or DMA2 instance */
+          if(IS_DMA_STREAM_INSTANCE(hdma->Instance) != 0 )  
       
               //使能中断
              // MODIFY_REG( ( hdma->Instance)->CR, (DMA_IT_TC | DMA_IT_TE | DMA_IT_DME | DMA_IT_HT), (DMA_IT_TC | DMA_IT_TE | DMA_IT_DME));
@@ -543,7 +542,7 @@ DMA_SetConfig(  *hdma,  SrcAddress,   DstAddress,   DataLength)   //TX分支
  
     *regs_dma    =  hdma->StreamBaseAddress;     //指向 LISR and LIFCR
 
-    if(IS_DMA_DMAMUX_ALL_INSTANCE(hdma->Instance) != 0U)   
+    if(IS_DMA_DMAMUX_ALL_INSTANCE(hdma->Instance) != 0)   
 
         hdma->DMAmuxChannelStatus->CFR = hdma->DMAmuxChannelStatusMask;   //或DMAMUX_CFR=Mask
 

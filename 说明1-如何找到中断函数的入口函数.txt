@@ -1,0 +1,17 @@
+
+
+说明1：找tx dma中断入口的两个方法： （其他中断也可用同样的方法）
+
+
+1. 在startup_stm32h503xx.s中，找到 GPDMA1_Channel1_IRQHandler
+
+
+2. 从dma初始化定义的callback函数UART_DMATransmitCplt，查找调用的地方，反推找到中断函数HAL_DMA_IRQHandler
+
+
+    数据流：handle_GPDMA1_Channel1->XferCpltCallback        =  UART_DMATransmitCplt;
+ 
+   数据流：handle_GPDMA1_Channel1->XferHalfCpltCallback  =  UART_DMATxHalfCplt;
+
+
+
