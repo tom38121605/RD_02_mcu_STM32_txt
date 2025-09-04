@@ -1,4 +1,4 @@
-
+﻿
 
 
 
@@ -61,7 +61,7 @@ MX_ADC1_Init( )
       //配置CFGR1.4-3,5,15=00,0,0， 12位精度，右对齐，无auto-off等； CFGR2.31-30=10，4分频 
       LL_ADC_Init(ADC1, &ADC_InitStruct); //配置CFGR1, 配置CFGR2
 
-      //CFGR1.21=0,每一位表示一个通道；（待理解）   CFGR1.12=1, 新数据覆盖旧的adc数据
+      //CFGR1.21=1, 另一个寄存器CHSELR的4个bit表示一个通道，8个通道可一次性自动一次转换；（半理解，就像一个插排上，0表示每个插口都有一个单独的开关，1表示8个插口共用一个开关）  
       LL_ADC_REG_SetSequencerConfigurable(ADC1, LL_ADC_REG_SEQ_CONFIGURABLE);
 
        //等待ISR.13=1, 上面的通道配置CFGR1已完成
@@ -69,12 +69,12 @@ MX_ADC1_Init( )
 
        LL_ADC_ClearFlag_CCRDY(ADC1);  //清 ISR.13=0
 
-       ADC_REG_InitStruct.TriggerSource = LL_ADC_REG_TRIG_SOFTWARE;                         // 或 0<<10, CFGR1 ，不使能外部trigger
-       ADC_REG_InitStruct.SequencerLength = LL_ADC_REG_SEQ_SCAN_DISABLE;              // f<<4， CHSELR  ，   待理解 （是选择adc通道？）
-       ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;       // 0<<16, CFGR1   ，不使能不连续模式
-       ADC_REG_InitStruct.ContinuousMode = LL_ADC_REG_CONV_SINGLE;                        // 0<<13, CFGR1  ，单次触发模式
-       ADC_REG_InitStruct.DMATransfer = LL_ADC_REG_DMA_TRANSFER_NONE;                // 0<<0, CFGR1    ，不使能dma
-       ADC_REG_InitStruct.Overrun = LL_ADC_REG_OVR_DATA_OVERWRITTEN;                   // 1<<12, CFGR1 ， adc用新数据覆盖旧数据
+       ADC_REG_InitStruct.TriggerSource = LL_ADC_REG_TRIG_SOFTWARE;                         // CFGR1.11-10=00, 使用software转换
+       ADC_REG_InitStruct.SequencerLength = LL_ADC_REG_SEQ_SCAN_DISABLE;                // f<<4，CHSELR, 待理解 （是选择adc通道？）
+       ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;         // CFGR1.16=0, 不使能"不连续模式“   (可以卡住连续模式, 到时单次和连续都不能触发）
+       ADC_REG_InitStruct.ContinuousMode = LL_ADC_REG_CONV_SINGLE;                        // CFGR1.13=0, 单次触发模式
+       ADC_REG_InitStruct.DMATransfer = LL_ADC_REG_DMA_TRANSFER_NONE;                // CFGR1.0=0, 不使能dma
+       ADC_REG_InitStruct.Overrun = LL_ADC_REG_OVR_DATA_OVERWRITTEN;                   // CFGR1.12=1, adc用新数据覆盖旧数据
        LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);    //设置CFGR1
 
        LL_ADC_SetOverSamplingScope(ADC1, LL_ADC_OVS_DISABLE);                                    //0<<0, CFGR2  , 不使能过采样
