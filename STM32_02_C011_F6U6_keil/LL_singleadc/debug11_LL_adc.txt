@@ -6,7 +6,7 @@
 
 
 
-========================adc  init================================
+==================================================== adc  init =========================================================
 
 
 步骤：
@@ -39,7 +39,7 @@ main
      MX_ADC1_Init();
 
 
-     //CR.28=1，使能adc内部稳压器；CR.31=1, 开启adc的校准；CR.0=1, 使能adc，等待至ISR.0=1，adc已准备好采样
+     //CR.28=1 使能adc内部稳压器；CR.31=1 开启adc的校准；CR.0=1 使能adc，等待至ISR.0=1 adc已准备好采样
      ADC_Activate();
 
 
@@ -54,14 +54,14 @@ main
 -----------------------
 
 功能：  设置adc时钟
-           设置初始化adc引脚PA4 （ADC4）
-           初始化adc参数，4分频，12位精度，右对齐
-           CFGR1.21=1, 另一个寄存器CHSELR的4个bit表示一个通道，8个通道可一次性自动依次转换；（半理解）  
-            不使能过采样, 不使能低频率触发, SMP1,2都是设置为79.5cycles
-           不使能EOC转换完成中断， 不使能EOS中断
-          CR.28=1，使能adc内部稳压器
-          CHSELR.4-0 = 4 , 选择第4通道  （已验证）   
-          SMPR.12=0,  ADC4采用SMP1中的cycles数
+        设置初始化adc引脚PA4 （ADC4）
+        初始化adc参数，4分频，12位精度，右对齐
+        CFGR1.21=1, 另一个寄存器CHSELR的4个bit表示一个通道，8个通道可一次性自动依次转换；（半理解）  
+        不使能过采样, 不使能低频率触发, SMP1,2都是设置为79.5cycles
+        不使能EOC转换完成中断， 不使能EOS中断
+        CR.28=1，使能adc内部稳压器
+        CHSELR.3-0 = 4 , 选择第4通道  （已验证）   
+        SMPR.12=0,  ADC4采用SMP1中的cycles数
 
 MX_ADC1_Init( )
  
@@ -130,7 +130,9 @@ MX_ADC1_Init( )
        while   wait_loop_index--;
   
       //CHSELR.4-0 = 4 , 选择第4通道  （已验证）         
-      LL_ADC_REG_SetSequencerRanks(ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_4);   //0,  4<<26 | 1<<4   
+      //LL_ADC_REG_SetSequencerRanks(ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_4);   //0,  4<<26 | 1<<4   
+         CHSELR &= f<<0；
+         CHSELR |=   4   << (0 & 1f )；   // CHSELR.3-0 =4, 选择第4通道
 
 
        //等待ISR.13=1, 上面的通道配置CFGR1已完成
@@ -167,22 +169,22 @@ MX_ADC1_Init( )
 ------------------
 
 //功能： CHSELR.4-0 = 4 , 选择第4通道  （待验证）
-参数：0，  4<<26 | 1<<4   
- LL_ADC_REG_SetSequencerRanks( *ADCx,   Rank,  Channel)
+参数：ADC1,   0，  4<<26 | 1<<4   
+LL_ADC_REG_SetSequencerRanks( *ADCx,   Rank,  Channel)
  
-  MODIFY_REG(ADCx->CHSELR,
+  //MODIFY_REG(ADCx->CHSELR,
              ADC_CHSELR_SQ1 << (Rank & ADC_REG_RANK_ID_SQRX_MASK),
              ((Channel & ADC_CHANNEL_ID_NUMBER_MASK_SEQ) >> ADC_CHANNEL_ID_NUMBER_BITOFFSET_POS) << (Rank & ADC_REG_RANK_ID_SQRX_MASK));
  
-CHSELR &= ADC_CHSELR_SQ1 << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
-CHSELR |=  (Channel & ADC_CHANNEL_ID_NUMBER_MASK_SEQ) >> ADC_CHANNEL_ID_NUMBER_BITOFFSET_POS) << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
+  //  CHSELR &= ADC_CHSELR_SQ1 << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
+  //  CHSELR |=  (Channel & ADC_CHANNEL_ID_NUMBER_MASK_SEQ) >> ADC_CHANNEL_ID_NUMBER_BITOFFSET_POS) << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
 
-CHSELR &= （f<<0） << ( 0 & 1f)；
-CHSELR |=  ( [（4<<26 | 1<<4） & ( f<<  26 ) ]>> 26) << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
-CHSELR |=  (  （4<<26  ） >> 26) << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
+  //    CHSELR &= （f<<0） << ( 0 & 1f)；
+  //    //CHSELR |=  ( [（4<<26 | 1<<4） & ( f<<  26 ) ]>> 26) << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
+  //      CHSELR |=  (  （4<<26  ） >> 26) << (Rank & ADC_REG_RANK_ID_SQRX_MASK)；
 
-CHSELR &= f<<0；
-CHSELR |=   4   << (0 & 1f )；   //4<<0
+        CHSELR &= f<<0；
+        CHSELR |=   4   << (0 & 1f )；   //4<<0
 
 
 ------------------------
@@ -224,7 +226,7 @@ CHSELR |=   4   << (0 & 1f )；   //4<<0
 
 --------------------
  
-//CR.28=1，使能adc内部稳压器；CR.31=1, 开启adc的校准；CR.0=1, 使能adc，等待至ISR.0=1，adc已准备好采样
+//CR.28=1 使能adc内部稳压器；CR.31=1 开启adc的校准；CR.0=1 使能adc，等待至ISR.0=1 adc已准备好采样
 ADC_Activate( )
  
       __IO uint32_t wait_loop_index = 0;
@@ -254,13 +256,13 @@ ADC_Activate( )
 
 
 
-========================adc read================================
+==================================================== adc read ======================================================
 
 
 步骤：  (easy)
     CR.2=1, 开启adc采样； 
     等待ISR.2=1, adc采样已完成
-    读取adc数值，   计算adc电压值
+    读取adc数值，计算adc电压值
 
 
 
@@ -309,7 +311,8 @@ ConversionStartPoll_ADC_GrpRegular( )
 
 
 
-===============================参考=====================================
+
+======================================================== 参考 ==========================================================
 
 
  LL_ADC_REG_Init(  *ADCx,  *ADC_REG_InitStruct )
