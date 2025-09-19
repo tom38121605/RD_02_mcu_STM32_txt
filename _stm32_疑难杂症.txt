@@ -1,9 +1,17 @@
 
-1. 串口打印时，前面会多打印一个字符FE   （波特率1M）
+1. 串口打印时，前面会多打印一个字符FE   （波特率1M）    //STM32C011F6U6TR
 分析1： 应该是串口缓冲区里面预存了一个字符在里面
 分析2： 如果把波特率修改成115200，则无此问题
 分析3： 在GS385_TXRX中，同样是波特率1M，却无此问题  （而且两个gpio设置完全相同，very high，no pull, fast enable）
-解决： （ 待解决 ）
+解决：  在初始化的时候，增加下面这一句
+
+   main
+
+      /* USER CODE BEGIN SysInit */
+
+
+      LL_RCC_ConfigMCO(LL_RCC_MCO1SOURCE_SYSCLK, LL_RCC_MCO1_DIV_4); //12Mhz = 48Mhz/4          //--add
+      /* USER CODE END SysInit */
 
 
 
