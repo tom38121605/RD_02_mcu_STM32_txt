@@ -1,0 +1,150 @@
+﻿
+
+疑问1： 这个例子是如何测试，是单步调试看变量吗
+答：    是的
+
+
+======================================= dma init ========================================
+
+flow:
+
+     如下 （略 ）   //-- easy
+ 
+
+
+---------------------------------------------------
+
+//main
+
+      //使能 GPDMA1的clk，设置GPDMA1的优先级和使能irq
+        初始化GPDMA1：通道优先级，搬运模式，搬运数量，递增模式
+      MX_GPDMA1_Init();
+
+      //设置dma的源地址和目标地址
+      //LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1, &sfrom, &sdest, 1<<14);
+         CMAR = sfrom;
+         CPAR = sdest;
+
+      //设置dma的传输长度
+      //LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1, 32 );
+         CNDTR.15-0 = 32;                              
+
+      //使能传输完成中断
+      //LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_1);
+          CCR.1=1;
+
+      //使能传输err中断
+      //LL_DMA_EnableIT_TE(DMA1, LL_DMA_CHANNEL_1);
+          CCR.3=1;
+
+      //打开dma的传输开关
+      //LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_1);
+          CCR.0=1;
+
+
+
+
+-----------
+
+功能：使能 GPDMA1的clk，设置GPDMA1的优先级和使能irq
+      初始化GPDMA1：通道优先级，搬运模式，搬运数量，递增模式
+
+MX_DMA_Init( )
+ 
+
+  //使能 GPDMA1的clk
+  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+     AHBENR.0=1;                                           //使能dma1 时钟clock   （AHBENR寄存器在C011自己的ram数据手册中就有）
+
+  //CCR清0
+  LL_DMA_SetPeriphRequest(DMA1, LL_DMA_CHANNEL_1, LL_DMAMUX_REQ_MEM2MEM);
+     CCR.15-0=0;     
+
+  //设置搬运方向：从内存到内存（不是从外设到内存）
+  LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_1, LL_DMA_DIRECTION_MEMORY_TO_MEMORY);
+     CCR.14=1;   
+
+  //设置优先级：High优先级 
+  LL_DMA_SetChannelPriorityLevel(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PRIORITY_HIGH);
+     CCR.13-12=2;   
+
+  //设置搬运模式：普通模式（不是循环搬）
+  LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MODE_NORMAL);
+     CCR.5=0;  
+
+  //设置外设地址为递增模式
+  LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PERIPH_INCREMENT);
+     CCR.6=1;  
+
+  //设置mem地址为递增模式
+  LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MEMORY_INCREMENT);
+     CCR.7=1;  
+
+  //设置外设每次搬运的数据量：每次搬1个“字”（Word，32bit）
+  LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PDATAALIGN_WORD);
+     CCR.9-8=2;  
+
+  //设置mem每次搬运的数据量：每次搬1个“字”（Word，32bit）
+  LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_WORD);
+     CCR.11-10=2;  
+
+
+  //设置GPDMA1的优先级和使能irq
+  NVIC_SetPriority(DMA1_Channel1_IRQn, 0);
+
+  NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+
+ 
+
+
+
+
+======================================= dma 中断处理 ========================================
+
+
+flow:
+
+    startup_stm32c011xx.s  --  GPDMA1_Channel0_IRQHandler 
+
+
+
+----------------------------------------------------
+
+
+DMA1_Channel1_IRQHandler( )
+
+  //TC 中断
+  if(LL_DMA_IsActiveFlag_TC1(DMA1) == 1)
+   
+    LL_DMA_ClearFlag_GI1(DMA1);
+
+    TransferComplete();           //接收完成处理
+   
+
+  //err 中断
+  else if(LL_DMA_IsActiveFlag_TE1(DMA1) == 1)  
+ 
+    TransferError();
+  
+ 
+
+------------------
+
+//接收完成处理
+TransferComplete()
+ 
+  if (Buffercmp( sfrom, sdest, 32) == 1)  
+      LED_Blinking(LED_BLINK_ERROR); 
+  
+ 
+  LED_On();
+ 
+
+
+
+
+
+
+
+
+
