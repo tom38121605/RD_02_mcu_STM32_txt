@@ -1,0 +1,75 @@
+
+示例： 移植STM32C031的例子，到STM32C011
+
+1. 在MX中修改MCU类型，方法一： import 法   （已验证，推荐，ok）
+
+   0). 预处理： 
+
+        。先把C031中所有引脚和功能，都调整到C011中完全有的，完全兼容      （详见本页最下面的说明）
+        。开始前，考虑把原工程的code generator的第一项修改成“copy  only the necessary library files   
+        。开始前，考虑把原工程的code generatord的第二项勾选.c .h模式   
+        。如果使用的是外部晶振，考虑把外部晶振HSE改成一致
+        。从新生成keil的代码，并编译ok
+
+   1). 运行MX
+   2). 选择新的MCU类型， STM32C011F6U6，create project生成新的工程
+   3). 点击菜单file\import，导入原来STM32C031中的ico文件   
+   3). 导入时跳出的2个界面，都选择默认，然后导入
+
+   4). 检查时钟是否跟原工程的一致 （有时导入时，时钟设置会变）
+       。如果是hse，则需手动勾选hse的选项
+       。外部晶振hse如果是8M，也要检查修改成8M
+   4). 在Project Manager里 ，选择新的工程路径，输入新的工程名称，如i2c_mytest    (原来的名称是：I2C_TwoBoards )
+   4). 在Project Manager里 ， .c, .h 选项，最好不要修改，跟原来保持一样
+   5). 在MX中，选择熟悉的keil，点击Generate code
+   6). 打开keil， 全部重编译一下，应该可以编译ok
+   6). 在keil中， 设置烧录后reset自动重启
+   7). 把C031中core里面的src和inc中的文件，拷贝到新的C011中来
+   8). 再编译一遍，ok
+
+   补充： 如果从c系列移植到f系列， 第7，8步需改变， 用svn比较src和inc中的所有文件，找出修改的地方，修改后再编译
+             （先用c系列的MX生成一个空的keil工程，再跟现在的c系列工程比较，找出修改点，添加到f系列中）
+
+
+
+2. 在MX中修改MCU类型，方法二： 修改ico文件法   （待完善，不推荐）
+
+    如下面的修改   （事先把C031中所有引脚和功能，都调整到C011中完全有的，完全兼容）
+      。
+CORTEX_M0+.IPParameters=MPU_Control
+CORTEX_M0+.MPU_Control=__NULL
+
+
+      。
+KeepUserPlacement=false
+Mcu.CPN=STM32C011F6U6TR
+
+
+      。
+Mcu.Name=STM32C011F(4-6)Ux
+Mcu.Package=UFQFPN20
+
+
+      。
+Mcu.UserName=STM32C011F6Ux
+
+
+      。
+ProjectManager.DeviceId=STM32C011F6Ux
+
+
+
+3. 在MX中更换引脚： PA5  -- PB6   (待验证)
+
+   1). 原来的引脚是PA5, INPUT, 名称是BUTTON
+   2). 右键PB6, 选择GPIO_INPUT
+   3). 在MX的GPIO中，把PB6的所有参数配置成跟PA5完全一样，名称设置成BUTTON2
+   4). 右键PA5, 选择 Reset State, 清除PA5
+   5). 把PB6的名称修改成BUTTON
+   6). 点击Generate cod， 即ok
+
+
+
+
+
+
