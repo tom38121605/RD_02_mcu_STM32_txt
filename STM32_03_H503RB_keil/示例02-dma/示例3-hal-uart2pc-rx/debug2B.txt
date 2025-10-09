@@ -1,0 +1,252 @@
+  
+
+
+
+  
+  huart1.Instance = USART1;
+
+  handle_GPDMA1_Channel0.Instance = GPDMA1_Channel0;      
+
+  
+
+
+
+
+
+typedef enum
+{
+  HAL_UNLOCKED = 0x00,
+  HAL_LOCKED   = 0x01
+} HAL_LockTypeDef;
+
+
+typedef struct __DMA_HandleTypeDef
+{
+  DMA_Channel_TypeDef       *Instance;                             
+  DMA_InitTypeDef           Init;                                  
+  DMA_InitLinkedListTypeDef InitLinkedList;                         
+  HAL_LockTypeDef           Lock;                                   
+  uint32_t                  Mode;                                   
+
+  __IO HAL_DMA_StateTypeDef State;                                  
+  __IO uint32_t             ErrorCode;                             
+  void                      *Parent;                                
+
+  void (* XferCpltCallback)(struct __DMA_HandleTypeDef *hdma);      
+  void (* XferHalfCpltCallback)(struct __DMA_HandleTypeDef *hdma);  
+  void (* XferErrorCallback)(struct __DMA_HandleTypeDef *hdma);    
+  void (* XferAbortCallback)(struct __DMA_HandleTypeDef *hdma);     
+  void (* XferSuspendCallback)(struct __DMA_HandleTypeDef *hdma);   
+
+  struct __DMA_QListTypeDef  *LinkedListQueue;                      
+
+} DMA_HandleTypeDef;                                                   // handle_GPDMA1_Channel0
+
+
+
+
+=======================================参考=======================================================
+
+
+
+
+
+typedef struct
+{
+   uint32_t Request;             
+   uint32_t BlkHWRequest;           
+   uint32_t Direction;              
+   uint32_t SrcInc;                 
+   uint32_t DestInc;                
+
+   uint32_t SrcDataWidth;           
+   uint32_t DestDataWidth;          
+   uint32_t Priority;               
+   uint32_t SrcBurstLength;         
+   uint32_t DestBurstLength;        
+
+   uint32_t TransferAllocatedPort;  
+   uint32_t TransferEventMode;      
+   uint32_t Mode;          
+         
+} DMA_InitTypeDef;
+
+
+typedef struct
+{
+  uint32_t                    NodeType;            
+  DMA_InitTypeDef             Init;                
+  DMA_DataHandlingConfTypeDef DataHandlingConfig; 
+  DMA_TriggerConfTypeDef      TriggerConfig;       
+  DMA_RepeatBlockConfTypeDef  RepeatBlockConfig;   
+
+  uint32_t                    SrcAddress;          
+  uint32_t                    DstAddress;          
+  uint32_t                    DataSize;           
+
+} DMA_NodeConfTypeDef;
+
+
+
+
+
+-------------------------
+ 
+typedef struct
+{
+
+  uint32_t LinkRegisters[8];  
+  uint32_t NodeInfo;           
+
+} DMA_NodeTypeDef;                                      //Node_GPDMA1_Channel0
+
+
+
+typedef struct
+{
+  uint32_t Request;                
+  uint32_t BlkHWRequest;           
+  uint32_t Direction;              
+  uint32_t SrcInc;                 
+  uint32_t DestInc;                
+
+  uint32_t SrcDataWidth;           
+  uint32_t DestDataWidth;          
+  uint32_t Priority;               
+  uint32_t SrcBurstLength;         
+  uint32_t DestBurstLength;        
+
+  uint32_t TransferAllocatedPort;  
+  uint32_t TransferEventMode;      
+  uint32_t Mode;                   
+
+} DMA_InitTypeDef;
+
+
+
+typedef struct __DMA_QListTypeDef
+{
+
+  DMA_NodeTypeDef                *Head;          
+  DMA_NodeTypeDef                *FirstCircularNode;  
+
+  uint32_t                       NodeNumber;          
+  __IO HAL_DMA_QStateTypeDef     State;     
+          
+  __IO uint32_t                  ErrorCode;          
+  __IO uint32_t                  Type;  
+              
+} DMA_QListTypeDef;                                       //List_GPDMA1_Channel0
+
+
+typedef struct __DMA_HandleTypeDef
+{
+  DMA_Channel_TypeDef       *Instance;                             
+  DMA_InitTypeDef           Init;                                  
+  DMA_InitLinkedListTypeDef InitLinkedList;                         
+  HAL_LockTypeDef           Lock;                                   
+  uint32_t                  Mode;                                   
+
+  __IO HAL_DMA_StateTypeDef State;                                  
+  __IO uint32_t             ErrorCode;                             
+  void                      *Parent;                                
+
+  void (* XferCpltCallback)(struct __DMA_HandleTypeDef *hdma);      
+  void (* XferHalfCpltCallback)(struct __DMA_HandleTypeDef *hdma);  
+  void (* XferErrorCallback)(struct __DMA_HandleTypeDef *hdma);    
+  void (* XferAbortCallback)(struct __DMA_HandleTypeDef *hdma);     
+  void (* XferSuspendCallback)(struct __DMA_HandleTypeDef *hdma);   
+
+  struct __DMA_QListTypeDef  *LinkedListQueue;                      
+
+} DMA_HandleTypeDef;                                                   // handle_GPDMA1_Channel0
+
+
+-----------
+
+typedef struct __UART_HandleTypeDef
+{
+   USART_TypeDef                 *Instance;                
+   UART_InitTypeDef              Init;                     
+   UART_AdvFeatureInitTypeDef    AdvancedInit;           
+   const uint8_t                 *pTxBuffPtr;              
+   uint16_t                      TxXferSize;                
+
+   __IO uint16_t            TxXferCount;          
+   uint8_t                  *pRxBuffPtr;         
+   uint16_t                 RxXferSize;          
+   __IO uint16_t            RxXferCount;         
+   uint16_t                 Mask;                  
+
+   uint32_t                            FifoMode;        
+   uint16_t                            NbRxDataToProcess;  
+   uint16_t                            NbTxDataToProcess;   
+   __IO HAL_UART_RxTypeTypeDef         ReceptionType;                             //here
+   __IO HAL_UART_RxEventTypeTypeDef    RxEventType;                               //here 
+
+   void (*RxISR)                       (struct __UART_HandleTypeDef *huart);  
+   void (*TxISR)                       (struct __UART_HandleTypeDef *huart);  
+   DMA_HandleTypeDef                   *hdmatx;                
+   DMA_HandleTypeDef                   *hdmarx;                 
+   HAL_LockTypeDef                     Lock;                    
+
+   __IO HAL_UART_StateTypeDef      gState;             
+   __IO HAL_UART_StateTypeDef      RxState;             
+   __IO uint32_t                   ErrorCode;         
+
+} UART_HandleTypeDef;                                                               
+
+
+
+
+
+
+
+
+============================================
+
+#define LL_DMA_CHANNEL_0      0
+
+#define BUFFER_SIZE           20
+
+uint8_t aRXBufferUser[RX_BUFFER_SIZE];
+
+
+uint8_t aRXBufferA[RX_BUFFER_SIZE];
+uint8_t aRXBufferB[RX_BUFFER_SIZE];
+
+
+
+
+
+
+
+
+
+
+
+
+
+================================
+
+HAL_UARTEx_ReceiveToIdle_DMA
+
+aRXBufferUser
+
+HAL_UARTEx_RxEventCallback
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,855 @@
+
+参考：debug2-dma-uartrx.txt
+
+
+1. 测试的准备：
+    。波特率设置为2M
+
+    。tx引脚PB14（ CN10 - 28 ），链接到pc的串口助手
+    。rx引脚PA1 （ CN8 -  2 ），链接到pc的串口助手
+
+
+2. 发送测试说明：  （UART1, 发送到pc串口）
+
+    。#define TRANSMITTER_BOARD，设置为发送板
+    。烧录发送功能的程序到板子 
+    。复位板子   
+    。按下button1按键 
+    。则板子发送 123456 到pc的串口助手
+
+    小灯等待按键发送： 快闪100ms
+    小灯发送成功：     常亮
+
+ 
+3. 接收测试说明：  （UART1, 接收pc串口发来的数据，并echo回去）
+
+    。#define RECEIVE_BOARD  ， 设置为接收板
+    。烧录接收功能的程序到板子 
+
+    。pc的串口助手发送 abcdef 到板子
+
+    。则板子收到后，返回发送123456 到pc的串口助手
+
+
+    小灯等待接收： 每半秒闪烁几下
+    小灯接收成功： 常亮
+
+
+说明1：找tx dma中断入口的两个方法： （其他中断也可用同样的方法）
+1. 在startup_stm32h503xx.s中，找到 GPDMA1_Channel1_IRQHandler
+2. 从dma初始化定义的callback函数UART_DMATransmitCplt，查找调用的地方，反推找到中断函数HAL_DMA_IRQHandler
+   数据流：handle_GPDMA1_Channel1->XferCpltCallback      =  UART_DMATransmitCplt; 
+   数据流：handle_GPDMA1_Channel1->XferHalfCpltCallback  =  UART_DMATxHalfCplt;
+
+
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ hal uart 的 dma tx的步骤 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+---------------- dma ch0 init  ---------------------
+
+
+--- MX_GPDMA1_Init --- 
+
+01. 使能dma1的时钟clock
+02. 设置dma1 CH0的优先级为0 (最高)
+03. 使能dma1 ch0的irq中断 
+
+
+---------------- uart init  ---------------------
+
+
+--- HAL_UART_MspInit --- 
+
+11. 使能USART1 clock，使能GPIOC clock，设置uart引脚
+12. DMA1CH0设置CCR ,CRT1,CRT2, 设置优先级，目标地址递增，每次只搬运1个数据(不是一批数据)
+13. uart2的抢占优先级设为0（最高），使能uart2的irq中断 
+
+
+--- HAL_UART_Init --- 
+
+21. uart设置CR1, CR2, CR3, 设置数据位8，异步模式，无校验，过采样倍数16，停止位1，无流控，波特率 
+22. CR1.0=1 , 打开uart
+
+
+---------------- dma ch0 tx 发送操作 ---------------------
+
+--- HAL_DMA_Start_IT --- 
+
+//30.  __HAL_LOCK 加锁dma ch0
+31. 设置dma ch0的传输数据长度，源地址，目标地址
+32. 使能dma ch0的完成中断,传输err中断，更新链接err中断，用户设置err中断，溢出中断
+33. 使能dma ch0的半完成中断
+34. 开启dma ch0
+
+
+--- HAL_UART_Transmit_DMA --- 
+
+41. uart设置，ICR.6=1, 清0传输完成的中断标志
+42. uart设置，CR3.7=1，使能uart的dma的发送       
+
+
+
+---------------- dma ch0 tx 中断处理---------------------
+
+
+---- GPDMA1_Channel0_IRQHandler ---- HT中断处理 ------
+
+51. dma ch0清HT中断标志CFCR.9
+52. 调用半完成中断服务函数 UART_DMATxHalfCplt，空函数
+
+
+---- GPDMA1_Channel0_IRQHandler ----TC中断处理 ------
+
+53. dma ch0清TC和HT中断标志CFCR.8和 CFCR.9
+//54. UNLOCK解锁 dma ch0
+
+55. 调用完成中断服务函数 UART_DMATransmitCplt， 设置uart1的CR1.6=1, 使能uart的TC完成中断 (会接着触发普通的uart中断)    //可选，这一句和下面的uart tx中断处理也可注释
+
+
+
+---------------- uart1 tx 中断处理---------------------
+
+
+---- USART1_IRQHandler --- UART_EndTransmit_IT ----TC中断处理 ------
+
+61. huart->TxXferCount = 0
+62. uart1设置CR1.6=1,，禁止发送完成中断
+63. UartReady置1  （改为led toggle）
+
+
+
+
+
+
+======================================= dma init ========================================
+
+flow:
+
+     如下 （略 ）   //-- easy
+ 
+
+
+---------------------------------------------------
+
+main
+
+      //使能dma1 时钟clock，
+        设置优先级分组的值为3（第四组，没有子优先级，都是16个抢占优先级），dma1通道0的抢占优先级设为0（最高），
+        使能dma1的通道0的irq中断 
+      MX_GPDMA1_Init();
+
+
+-----------------------------------
+
+功能：使能dma1 时钟clock，
+      设置优先级分组的值为3（第四组，没有子优先级，都是16个抢占优先级），dma1通道0和通道的抢占优先级设为0（最高），
+      使能dma1的通道0的irq中断 
+MX_GPDMA1_Init( )
+   
+   //__HAL_RCC_GPDMA1_CLK_ENABLE();                            
+       RCC->AHB1ENR.0=1;                                           //使能dma1 时钟clock   （AHB1ENR寄存器在H503自己的ram数据手册中就有）
+
+   
+  //-----dma channel0 ---
+
+   //设置优先级分组的值为3（第四组，没有子优先级，都是16个抢占优先级），dma1通道0的抢占优先级设为0（最高）
+   //HAL_NVIC_SetPriority(GPDMA1_Channel0_IRQn, 0, 0);        //设置dma1的优先级0 
+
+        SCB->AIRCR.10-8 = 3， AIRCR.7-4的四位(这里是IPRn高四位)都是抢占优先级，0位子优先级（即没有子优先级）
+
+        //NVIC_SetPriority(GPDMA1_Channel0_IRQn, 0 );
+           NVIC->IPR[27] = 0<<4;  //IPR[27].7-4=0000             //高4位都是抢占优先级，一共有16个抢占优先级，0是最高的
+
+
+    //HAL_NVIC_EnableIRQ(GPDMA1_Channel0_IRQn);                //使能dma1的通道0的irq中断 
+       //NVIC_EnableIRQ(GPDMA1_Channel0_IRQn);
+          //NVIC->ISER[27>>5 ] =  1 << (27 & 1f);
+              NVIC->ISER[0] =  1 << 27;
+
+
+  //-----dma channel1 ---
+
+    //设置优先级分组的值为3（第四组，没有子优先级，都是16个抢占优先级），dma1通道1的抢占优先级设为0（最高）
+    HAL_NVIC_SetPriority(GPDMA1_Channel1_IRQn, 0, 0);
+        AIRCR.10-8 = 3， AIRCR.7-4的四位(这里是IPRn高四位)都是抢占优先级，0位子优先级（即没有子优先级）
+
+        //NVIC_SetPriority(GPDMA1_Channel0_IRQn, 0 );
+           NVIC->IPR[28] = 0<<4;  //IPR[28].7-4=0000             //4位都是抢占优先级，一共有16个抢占优先级，0是最高的
+
+    HAL_NVIC_EnableIRQ(GPDMA1_Channel1_IRQn);                //使能dma1的通道1的irq中断 
+       //NVIC_EnableIRQ(GPDMA1_Channel0_IRQn);
+          //NVIC->ISER[28>> 5 ] =  1 << (28 & 1f);
+              NVIC->ISER[ 0] =  1 << 28;
+
+
+
+
+======================================= uart1 init ========================================
+
+flow:
+
+     main -- MX_USART1_UART_Init -- HAL_UART_Init -- HAL_UART_MspInit 
+
+     HAL_UART_MspInit -- HAL_DMA_Init -- DMA_Init -- __HAL_LINKDMA -- HAL_DMA_ConfigChannelAttributes -- HAL_NVIC_SetPriority -- HAL_NVIC_EnableIRQ
+
+
+
+数据流：handle_GPDMA1_Channel1->Mode = DMA_NORMAL
+        handle_GPDMA1_Channel0->Mode = DMA_NORMAL
+
+数据流：uartHandle->hdmarx = &handle_GPDMA1_Channel1;  
+        handle_GPDMA1_Channel1.Parent = uartHandle;    
+
+数据流：uartHandle->hdmatx = &handle_GPDMA1_Channel0;  
+        handle_GPDMA1_Channel0.Parent = uartHandle; 
+
+
+---------------------------------------------------
+
+
+main
+
+     //把串口参数赋值给结构体huart1（波特率等），然后调用HAL_UART_Init
+       规定串口只能一个一个字节接收
+     MX_USART1_UART_Init()
+ 
+
+---------------------
+
+串口初始化之第一层
+
+功能：设置串口的比特率等参数，存储到结构体 huart1中
+      调用HAL_UART_Init
+
+MX_USART1_UART_Init( )
+ 
+  //设置串口的比特率等参数，存储到结构体 huart1中
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 2000000;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+
+
+  //串口初始化之第二层
+    调用HAL_UART_MspInit
+    设置数据位8，异步模式，无校验，过采样倍数16，停止位1，无流控，波特率。打开uart
+  HAL_UART_Init(&huart1);
+
+
+  //下面是规定串口只能一个一个字节接收 （忽略跳过）
+  HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8);
+  HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8);
+  HAL_UARTEx_DisableFifoMode(&huart1);
+
+
+-----------
+
+串口初始化之第二层
+
+功能：调用HAL_UART_MspInit
+      设置数据位8，异步模式，无校验，过采样倍数16，停止位1，无流控，波特率。
+      打开uart
+
+参数： huart1  
+
+HAL_UART_Init( *huart )
+ 
+  huart->Lock = HAL_UNLOCKED;
+ 
+  HAL_UART_MspInit(huart);
+ 
+
+  huart->gState = HAL_UART_STATE_BUSY;
+  __HAL_UART_DISABLE(huart);
+
+
+  //是否设置uart的高级性能
+  if (huart->AdvancedInit.AdvFeatureInit != UART_ADVFEATURE_NO_INIT) //no，不需要进行高级特性设置，跳过
+    UART_AdvFeatureConfig(huart);
+
+
+  //设置数据位8，异步模式，无校验，过采样倍数16，停止位1，无流控，波特率
+  UART_SetConfig(huart);
+
+
+  //因现在是在 asynchronous模式, 清除下面的标志
+
+  CLEAR_BIT(huart->Instance->CR2, (USART_CR2_LINEN | USART_CR2_CLKEN));                   //LINEN=0 不配置主从模式，CLKEN=0 不能clk引脚
+  CLEAR_BIT(huart->Instance->CR3, (USART_CR3_SCEN | USART_CR3_HDSEL | USART_CR3_IREN));   //SCEN=0 不使能智能卡模式，HDSEL=0 不使能半双工， IREN=0 不使能红外协议
+
+
+  __HAL_UART_ENABLE(huart);     //CR1.0=1 , 打开uart
+ 
+  return (UART_CheckIdleState(huart));
+ 
+
+-----------------
+
+功能：设置数据位8，异步模式，无校验，过采样倍数16，停止位1，无流控，波特率
+
+参数： huart1 
+
+UART_SetConfig( *huart )
+
+  //配置CR1，设置数据位8，异步模式，无校验，过采样倍数16
+  tmpreg = huart->Init.WordLength | huart->Init.Parity | huart->Init.Mode | huart->Init.OverSampling ;
+  MODIFY_REG(huart->Instance->CR1, USART_CR1_FIELDS, tmpreg);
+
+
+  //配置CR2，设置停止位1
+  MODIFY_REG(huart->Instance->CR2, USART_CR2_STOP, huart->Init.StopBits);
+
+
+  //配置CR3，设置无流控
+  tmpreg = (uint32_t)huart->Init.HwFlowCtl;
+
+  if (!(UART_INSTANCE_LOWPOWER(huart)))
+    tmpreg |= huart->Init.OneBitSampling;
+  
+  MODIFY_REG(huart->Instance->CR3, USART_CR3_FIELDS, tmpreg);
+
+
+  //配置波特率，设置波特率
+  MODIFY_REG(huart->Instance->PRESC, USART_PRESC_PRESCALER, huart->Init.ClockPrescaler);
+  UART_GETCLOCKSOURCE(huart, clocksource);
+
+
+  if (UART_INSTANCE_LOWPOWER(huart))  //no，不能低功耗，跳过
+      ...
+ 
+  else if (huart->Init.OverSampling == UART_OVERSAMPLING_8)    //8倍过采样时的波特率设置 （忽略跳过）
+      ...
+
+  else       //16倍过采样时的波特率设置 （忽略跳过）
+      ...
+
+
+  huart->NbTxDataToProcess = 1;
+  huart->NbRxDataToProcess = 1;
+
+
+  huart->RxISR = NULL;
+  huart->TxISR = NULL;
+
+
+
+-----------------------------------------
+
+串口初始化之第三层
+
+功能：使能USART1 clock，使能GPIOC clock，设置uart引脚
+      DMA1CH0设置CCR 优先级，
+      DMA1CH0设置CRT1 目标地址递增(rx)，端口和按字节传输和每次搬运字节
+      DMA1CH0设置CRT2 每次只搬运1个数据(不是一批数据),外设连接 uart rx,传输完成后触发事件，按固定节奏搬完所有包裹(BNDT数量)，不能提前结束
+      设置优先级分组的值为3（都是16个抢占优先级），uart2的抢占优先级设为0（最高），使能uart2的irq中断 
+
+数据流：handle_GPDMA1_Channel1->Mode = DMA_NORMAL
+        handle_GPDMA1_Channel0->Mode = DMA_NORMAL
+
+数据流：uartHandle->hdmarx = &handle_GPDMA1_Channel1;  
+        handle_GPDMA1_Channel1.Parent = uartHandle;    
+
+数据流：uartHandle->hdmatx = &handle_GPDMA1_Channel0;  
+        handle_GPDMA1_Channel0.Parent = uartHandle;    
+
+参数： huart1  
+HAL_UART_MspInit( * uartHandle ) 
+
+   //clk初始化
+   PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USART1;
+   PeriphClkInitStruct.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK2;
+   HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct);
+
+   __HAL_RCC_USART1_CLK_ENABLE();  //使能USART2 clock
+   __HAL_RCC_GPIOA_CLK_ENABLE();   //使能GPIOA clock
+   __HAL_RCC_GPIOB_CLK_ENABLE();   //使能GPIOB clock
+ 
+
+    //设置uart引脚PA1,PB14
+   GPIO_InitStruct.Pin = GPIO_PIN_1;
+   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+   GPIO_InitStruct.Pull = GPIO_PULLUP;
+   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+   GPIO_InitStruct.Alternate = GPIO_AF8_USART1;
+   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+   GPIO_InitStruct.Pin = GPIO_PIN_14;
+   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+   GPIO_InitStruct.Pull = GPIO_PULLUP;
+   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+   GPIO_InitStruct.Alternate = GPIO_AF4_USART1;
+   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+
+   //设置uart1 rx的dma1的通道1的参数
+   handle_GPDMA1_Channel1.Instance = GPDMA1_Channel1;                      // 通道1
+   handle_GPDMA1_Channel1.Init.Request = GPDMA1_REQUEST_USART1_RX;         // CTR2.7-0=21，     外设连接 uart rx
+
+   handle_GPDMA1_Channel1.Init.BlkHWRequest = DMA_BREQ_SINGLE_BURST;       // CTR2.11=0,         不需要硬件信号，来数据就搬运（而不是等一批数据）   //待理解
+   handle_GPDMA1_Channel1.Init.Direction = DMA_PERIPH_TO_MEMORY;           // CTR2.10=0,         外设到mem
+   handle_GPDMA1_Channel1.Init.SrcInc = DMA_SINC_FIXED;                    // CTR1.3=0,          源地址固定
+   handle_GPDMA1_Channel1.Init.DestInc = DMA_DINC_INCREMENTED;             // CTR1.19=1,         目标地址递增
+   handle_GPDMA1_Channel1.Init.SrcDataWidth = DMA_SRC_DATAWIDTH_BYTE;      // CTR1.1-0=00,       源数据是按字节传输
+   handle_GPDMA1_Channel1.Init.DestDataWidth = DMA_DEST_DATAWIDTH_BYTE;    // CTR1.17-16=00,     目标数据是按字节传输
+   handle_GPDMA1_Channel1.Init.Priority = DMA_LOW_PRIORITY_HIGH_WEIGHT;    // CCR.23-22=2,       设置快递员的优先级
+   handle_GPDMA1_Channel1.Init.SrcBurstLength = 1;                         // CTR1.9-4=(1-1),    每次只搬运1个字节，不使用突发传输  //待理解
+   handle_GPDMA1_Channel1.Init.DestBurstLength = 1;                        // CTR1.25-20=(1-1),  每次只搬运1个字节，不使用突发传输  //待理解
+
+   handle_GPDMA1_Channel1.Init.TransferAllocatedPort = DMA_SRC_ALLOCATED_PORT0|DMA_DEST_ALLOCATED_PORT0;   // CTR1.14,30=0,0,  源数据和目标数据都使用端口0
+   handle_GPDMA1_Channel1.Init.TransferEventMode = DMA_TCEM_BLOCK_TRANSFER;                                // CTR2.31-30=0,    传输完成后触发事件（比如通知CPU数据搬完了 (待理解)
+   handle_GPDMA1_Channel1.Init.Mode = DMA_NORMAL;                                                          // CTR2.12=0, 按固定节奏搬完所有包裹（BNDT数量），不能提前结束 (待理解)
+
+   //把rx的通道1的参数写入到寄存器
+   HAL_DMA_Init(&handle_GPDMA1_Channel1);   
+
+   //绑定UART和DMA：告诉UART“以后收到的数据别找CPU了，直接让DMA搬走”
+   //__HAL_LINKDMA(uartHandle, hdmarx, handle_GPDMA1_Channel1);    
+       uartHandle->hdmarx = &handle_GPDMA1_Channel1;  
+       handle_GPDMA1_Channel1.Parent = uartHandle;    
+
+   //关闭GPDMA1_Channel1的特权模式
+   HAL_DMA_ConfigChannelAttributes(&handle_GPDMA1_Channel1, DMA_CHANNEL_NPRIV);   //0x0000 0010
+   
+
+   //设置uart1 tx的dma1的通道0的参数
+   handle_GPDMA1_Channel0.Instance = GPDMA1_Channel0;                     //通道0
+   handle_GPDMA1_Channel0.Init.Request = GPDMA1_REQUEST_USART1_TX;        // CTR2.7-0=22，      外设连接 uart tx
+
+   handle_GPDMA1_Channel0.Init.BlkHWRequest = DMA_BREQ_SINGLE_BURST;      // CTR2.11=0,         不需要硬件信号，来数据就搬运（而不是等一批数据）   //待理解
+   handle_GPDMA1_Channel0.Init.Direction = DMA_MEMORY_TO_PERIPH;          // CTR2.10=1,         mem到外设
+   handle_GPDMA1_Channel0.Init.SrcInc = DMA_SINC_INCREMENTED;             // CTR1.3=1,          源地址递增
+   handle_GPDMA1_Channel0.Init.DestInc = DMA_DINC_FIXED;                  // CTR1.19=0,         目标地址递增目标地址固定
+   handle_GPDMA1_Channel0.Init.SrcDataWidth = DMA_SRC_DATAWIDTH_BYTE;     // CTR1.1-0=00,       源数据是按字节传输
+   handle_GPDMA1_Channel0.Init.DestDataWidth = DMA_DEST_DATAWIDTH_BYTE;   // CTR1.17-16=00,     目标数据是按字节传输
+   handle_GPDMA1_Channel0.Init.Priority = DMA_LOW_PRIORITY_HIGH_WEIGHT;   // CCR.23-22=2,       设置快递员的优先级
+   handle_GPDMA1_Channel0.Init.SrcBurstLength = 1;                        // CTR1.9-4=(1-1),    每次只搬运1个字节，不使用突发传输  //待理解
+   handle_GPDMA1_Channel0.Init.DestBurstLength = 1;                       // CTR1.25-20=(1-1),  每次只搬运1个字节，不使用突发传输  //待理解
+
+   handle_GPDMA1_Channel0.Init.TransferAllocatedPort = DMA_SRC_ALLOCATED_PORT0|DMA_DEST_ALLOCATED_PORT0;  // CTR1.14,30=0,0,  源数据和目标数据都使用端口0
+   handle_GPDMA1_Channel0.Init.TransferEventMode = DMA_TCEM_BLOCK_TRANSFER;                               // CTR2.31-30=0,    传输完成后触发事件（比如通知CPU数据搬完了   (待理解)
+   handle_GPDMA1_Channel0.Init.Mode = DMA_NORMAL;                                                         // CTR2.12=0, 按固定节奏搬完所有包裹（BNDT 指定数量） //不能提前结束 (待理解)
+
+
+   //把tx的通道0的参数写入到寄存器
+   HAL_DMA_Init(&handle_GPDMA1_Channel0);
+   
+
+   //绑定UART和DMA：告诉UART“以后收到的数据别找CPU了，直接让DMA搬走”
+   //__HAL_LINKDMA(uartHandle, hdmatx, handle_GPDMA1_Channel0);   
+       uartHandle->hdmatx = &handle_GPDMA1_Channel0;  
+       handle_GPDMA1_Channel0.Parent = uartHandle;    
+
+
+   //关闭GPDMA1_Channel0的特权模式
+   HAL_DMA_ConfigChannelAttributes(&handle_GPDMA1_Channel0, DMA_CHANNEL_NPRIV);
+   
+ 
+   //设置优先级分组的值为3（第四组，没有子优先级，都是16个抢占优先级），uart1的抢占优先级设为0（最高）
+    HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);   
+
+        AIRCR.10-8 = 3;                                         //IPR[58].7-4的四位(这里是IPRn高四位)都是抢占优先级，0位子优先级（即没有子优先级）
+        //NVIC_SetPriority(GUSART1_IRQn, 0 );
+           NVIC->IPR[58] = 0<<4;  //IPR[58].7-4=0000             //4位都是抢占优先级，一共有16个抢占优先级，0是最高的
+
+
+   //使能uart1的irq中断 
+   //HAL_NVIC_EnableIRQ(USART1_IRQn);            
+       //NVIC_EnableIRQ(USART1_IRQn);
+          //NVIC->ISER[58>> 5 ] = 1<<(58 & 1f);
+              NVIC->ISER[1] = 1<<26;
+
+------
+
+功能：关闭GPDMA1_Channel1的特权模式
+
+参数：handle_GPDMA1_Channel1 ， 0x10
+HAL_DMA_ConfigChannelAttributes( * hdma, ChannelAttributes )
+
+  p_dma_instance = GET_DMA_INSTANCE(hdma);    
+                 = GPDMA1;
+
+  channel_idx    = 1 << (GET_DMA_CHANNEL(hdma) & 0x1F);
+                 = 1 << ( ( GPDMA1_Channel1 & HAL_DMA_OFFSET_MASK) - HAL_DMA_CHANNEL_START ) / HAL_DMA_CHANNEL_SIZE 
+                 = 1 << ( (0xD0 & 0x0FFF) - 0x50 ) /0x80 
+                 = 1 << ( 0xD - 0x50 ) /0x80 
+                 = 1 << 1
+
+  //判断和设置给通道的特权参数
+  if ((ChannelAttributes & DMA_CHANNEL_ATTR_PRIV_MASK) == DMA_CHANNEL_ATTR_PRIV_MASK)  //yes， 0x10，0x10，  
+  
+    if ((ChannelAttributes & DMA_CHANNEL_PRIV) == DMA_CHANNEL_PRIV)  //no，0x10，0x11     
+      p_dma_instance->PRIVCFGR |= channel_idx;
+     
+    else                                                            //yes      
+      //p_dma_instance->PRIVCFGR &= (~channel_idx);
+          PRIVCFGR.1=0;                                              //关闭特权模式
+ 
+
+-----------------------------
+
+串口初始化之第四层
+
+功能：设置CCR 优先级，
+      设置CRT1 目标地址递增(rx)，端口和按字节传输和每次搬运字节
+      设置CRT2 每次只搬运1个数据(不是一批数据),外设连接 uart rx,传输完成后触发事件，按固定节奏搬完所有包裹(BNDT数量)，不能提前结束
+
+数据流：handle_GPDMA1_Channel1->Mode = DMA_NORMAL
+
+参数：handle_GPDMA1_Channel1 (用于rx)
+
+HAL_DMA_Init( * hdma )
+
+   __HAL_UNLOCK(hdma);
+   hdma->State = HAL_DMA_STATE_BUSY;
+
+   __HAL_DMA_DISABLE(hdma);
+       CCR.1,0 = 0,0;   //暂停dma，resetdma
+
+   while ((hdma->Instance->CCR & DMA_CCR_EN) != 0);    //等待直到CCR.0=0, 等待dma关闭后，才进行下一步的操作
+
+
+   //dma寄存器设置
+   DMA_Init(hdma);
+
+
+   hdma->Mode = hdma->Init.Mode;             // DMA_NORMAL，按固定节奏搬完所有包裹（BNDT 指定数量）   //不能提前结束
+
+   hdma->ErrorCode = HAL_DMA_ERROR_NONE;
+   hdma->State = HAL_DMA_STATE_READY;
+
+
+
+-----------------------------
+
+串口初始化之第五层
+
+功能：设置CCR 优先级，
+      设置CRT1 目标地址递增(rx)，端口和按字节传输和每次搬运字节
+      设置CRT2 每次只搬运1个数据(不是一批数据),外设连接 uart rx,传输完成后触发事件，按固定节奏搬完所有包裹(BNDT数量)，不能提前结束
+
+参数：handle_GPDMA1_Channel1 (用于rx)
+
+DMA_Init( * hdma )
+
+  //---配置CCR--- (Control Register)
+  tmpreg = hdma->Init.Priority;    //CCR.23-22=2, 设置快递员的优先级2
+
+  MODIFY_REG(hdma->Instance->CCR, DMA_CCR_PRIO | DMA_CCR_LAP | DMA_CCR_LSM, tmpreg);
+      CCR.23-22,17,16 =2,0,0;   // 设置优先级2，链表端点0 ，完整执行模式 （待理解，链表相关，先忽略）
+
+  //---配置CTR1--- (Transfer Register)
+  //tmpreg = hdma->Init.DestInc | hdma->Init.DestDataWidth | hdma->Init.SrcInc | hdma->Init.SrcDataWidth;
+     CTR1 = 1<<19 | 0<<16-17 | 0<<3 | 0<<0-1;   // 目标地址递增 , 目标数据是按字节传输, 源地址固定, 源数据是按字节传输
+
+     CTR1 |= (hdma->Init.TransferAllocatedPort                                               //CTR1.14,30=0,0, 源数据和目标数据都使用端口0
+             (((hdma->Init.DestBurstLength - 1 ) << DMA_CTR1_DBL_1_Pos) & DMA_CTR1_DBL_1)    //CTR1.9-4=(1-1), 目标数据每次只搬运1个字节，不使用突发传输  //待理解
+             (((hdma->Init.SrcBurstLength - 1 ) << DMA_CTR1_SBL_1_Pos) & DMA_CTR1_SBL_1));   //CTR1.25-20=(1-1), 源数据每次只搬运1个字节，不使用突发传输  //待理解
+
+ 
+  //---配置CTR2--- (Transfer Register)
+  //tmpreg = hdma->Init.BlkHWRequest | (hdma->Init.Request & DMA_CTR2_REQSEL) | hdma->Init.TransferEventMode;
+     CTR2 = 0<<11 | 21<<0 | 0<<30;    //不需要硬件信号，来数据就搬运（（而不是等一批数据）,外设连接 uart rx,传输完成后触发事件（比如通知CPU数据搬完了 (待理解)
+
+
+  //忽略下面6句，没有执行到
+  if ((hdma->Init.Direction) == DMA_MEMORY_TO_PERIPH)       //no
+     ......
+  else if ((hdma->Init.Direction) == DMA_MEMORY_TO_MEMORY)  //no
+     ......
+  else
+    ;
+
+
+  CTR2 |= hdma->Init.Mode;     //0<<12, 按固定节奏搬完所有包裹（BNDT数量），不能提前结束 (待理解)
+
+
+  //---配置CBR1---
+  WRITE_REG(hdma->Instance->CBR1, 0U);
+     CBR1=0;                                //待理解，暂未用到，忽略跳过   
+
+
+  //关于二维数据，忽略跳过
+  if (IS_DMA_2D_ADDRESSING_INSTANCE(hdma->Instance) != 0)  //no，不是ch6，ch7的二维数据，忽略跳过   
+    ......
+  
+  //清0链表节点的地址，忽略跳过
+  WRITE_REG(hdma->Instance->CLLR, 0);
+     CLLR =0;  // 待理解  （关于链表节点的，等用到了再看）
+
+
+
+
+
+
+======================================= tx dma 初始化 ========================================
+
+flow：
+
+    main -- HAL_UART_Transmit_DMA -- HAL_DMA_Start_IT -- DMA_SetConfig -- __HAL_DMA_ENABLE_IT -- __HAL_DMA_ENABLE -- ATOMIC_SET_BIT
+
+
+数据流：handle_GPDMA1_Channel1->XferCpltCallback      =  UART_DMATransmitCplt; 
+数据流：handle_GPDMA1_Channel1->XferHalfCpltCallback  =  UART_DMATxHalfCplt;
+
+
+
+------------------
+
+main
+
+    //设置dma ch0的CCR,传输数据长度，源地址，目标地址。设置CFCR, 清0所有中断标志，使能完成中断，半完成中断，err中断。开启dma ch1
+      设置uart，ICR.6=1, 清0传输完成的中断标志。CR3.7=1，使能uart的dma的发送
+    HAL_UART_Transmit_DMA(&huart1, aTxBuffer, TXBUFFERSIZE);
+
+
+------------------
+
+功能：设置dma ch0的CCR,传输数据长度，源地址，目标地址。设置CFCR, 清0所有中断标志，使能完成中断，半完成中断，err中断。开启dma ch1
+      设置uart，ICR.6=1, 清0传输完成的中断标志。CR3.7=1，使能uart的dma的发送
+
+数据流：handle_GPDMA1_Channel1->XferCpltCallback      =  UART_DMATransmitCplt; 
+数据流：handle_GPDMA1_Channel1->XferHalfCpltCallback  =  UART_DMATxHalfCplt;
+
+参数：huart1, aTxBuffer, 6 
+HAL_UART_Transmit_DMA( *huart, *pData, Size )
+
+   uint16_t nbByte = Size;  //6
+  
+   huart->pTxBuffPtr   = pData;  //aTxBuffer
+
+   huart->TxXferSize   = Size;   //6
+   huart->TxXferCount  = Size;   //6
+
+   huart->ErrorCode = HAL_UART_ERROR_NONE;
+   huart->gState    = HAL_UART_STATE_BUSY_TX;
+
+
+   if (huart->hdmatx != NULL)   //yes，dma1的通道0，handle_GPDMA1_Channel1   
+ 
+      huart->hdmatx->XferCpltCallback     =  UART_DMATransmitCplt; 
+      huart->hdmatx->XferHalfCpltCallback =  UART_DMATxHalfCplt;
+ 
+      huart->hdmatx->XferErrorCallback = UART_DMAError;
+      huart->hdmatx->XferAbortCallback = NULL;
+ 
+      if ((huart->hdmatx->Mode & DMA_LINKEDLIST) == DMA_LINKEDLIST)   //no， DMA_NORMAL，忽略跳过      
+         ......
+      
+      else      //yes
+
+          //设置dma ch0的CCR,传输数据长度，源地址，目标地址。设置CFCR, 清0所有中断标志，使能完成中断，半完成中断，err中断。开启dma ch1
+          HAL_DMA_Start_IT(huart->hdmatx,  huart->pTxBuffPtr, &huart->Instance->TDR, nbByte);
+      
+ 
+   __HAL_UART_CLEAR_FLAG(huart, UART_CLEAR_TCF);            //ICR.6=1, 清0传输完成的中断标志
+
+   ATOMIC_SET_BIT(huart->Instance->CR3, USART_CR3_DMAT);    //CR3.7=1，使能uart的dma的发送
+ 
+
+------------------
+
+功能：设置dma ch0的CCR,传输数据长度，源地址，目标地址。设置CFCR, 清0所有中断标志，使能完成中断，半完成中断，err中断。开启dma ch1
+
+参数：handle_GPDMA1_Channel1, aTxBuffer, TDR, 6
+
+HAL_DMA_Start_IT( * hdma, SrcAddress, DstAddress, SrcDataSize )
+ 
+      __HAL_LOCK(hdma);
+
+      hdma->State = HAL_DMA_STATE_BUSY;
+      hdma->ErrorCode = HAL_DMA_ERROR_NONE;
+
+      //设置dma ch0的CCR,传输数据长度，源地址，目标地址。设置CFCR, 清0所有中断标志
+      DMA_SetConfig(hdma, SrcAddress, DstAddress, SrcDataSize);
+
+      //__HAL_DMA_ENABLE_IT(hdma, (DMA_IT_TC | DMA_IT_DTE | DMA_IT_ULE | DMA_IT_USE | DMA_IT_TO));
+         CCR.9 = 1<<8 | 1<<10 | 1<<11 | 1<<12 | 1<<14;                                             //使能完成中断,传输err中断，更新链接err中断，用户设置err中断，溢出中断
+
+      if (hdma->XferHalfCpltCallback != NULL)      //yes
+         //__HAL_DMA_ENABLE_IT(hdma, DMA_IT_HT);
+            CCR.9 =1;                              //使能半完成中断
+
+      __HAL_DMA_ENABLE(hdma);
+         CCR.0 = 1;                //开启 dma ch1
+
+
+------------------
+
+功能：设置dma ch0的CCR,传输数据长度，源地址，目标地址。设置CFCR, 清0所有中断标志
+
+参数：handle_GPDMA1_Channel1, aTxBuffer, TDR, 6
+
+DMA_SetConfig( * hdma,  SrcAddress,  DstAddress,  SrcDataSize) 
+ 
+  MODIFY_REG(hdma->Instance->CBR1, DMA_CBR1_BNDT, (SrcDataSize & DMA_CBR1_BNDT));
+      CBR1.15-0 = 6;   //6, 传输数据长度
+
+  //设置CFCR, 清0所有中断标志
+  __HAL_DMA_CLEAR_FLAG(hdma, DMA_FLAG_TC | DMA_FLAG_HT | DMA_FLAG_DTE | DMA_FLAG_ULE | DMA_FLAG_USE | DMA_FLAG_SUSP | DMA_FLAG_TO);
+
+  CSAR = SrcAddress;    //aTxBuffer，设置通道1的源数据地址 
+  CDAR = DstAddress;    //TDR， 设置通道1的目标数据地址
+ 
+
+
+======================================= tx dma 中断处理 ========================================
+
+
+说明：只有很简单的功能。DMA的HT中断只清标志啥也没做。DMA的TC中断中使能uart的TC完成中断 (会接着触发普通的uart中断) 
+
+
+flow：
+
+   startup_stm32h503xx.s -- GPDMA1_Channel1_IRQHandler -- HAL_DMA_IRQHandler 
+
+   HAL_DMA_IRQHandler-- hdma->XferHalfCpltCallback -- UART_DMATxHalfCplt -- HAL_UART_TxHalfCpltCallback  
+   HAL_DMA_IRQHandler-- hdma->XferCpltCallback -- UART_DMATransmitCplt   
+
+
+------------------
+
+GPDMA1_Channel1_IRQHandler( )
+ 
+   HAL_DMA_IRQHandler(&handle_GPDMA1_Channel1);
+
+
+------------------
+
+功能：CR1.6=1, 使能TC完成中断 (会接着触发普通的uart中断)
+
+参数：handle_GPDMA1_Channel1
+HAL_DMA_IRQHandler( * hdma )
+ 
+ 
+   //------ HT中断处理 ------  （只清标志，啥也没做）
+
+   if ((__HAL_DMA_GET_FLAG(hdma, DMA_FLAG_HT) != 0 ))    //yes，CSR.9=1, 有HT中断标志    
+      if (__HAL_DMA_GET_IT_SOURCE(hdma, DMA_IT_HT) != 0) //yes，CCR.9=1, HT中断已使能
+
+         //清HT中断标志CFCR.9
+         __HAL_DMA_CLEAR_FLAG(hdma, DMA_FLAG_HT);
+
+         //调用半完成中断服务函数
+         //hdma->XferHalfCpltCallback(hdma);
+         //  UART_DMATxHalfCplt(hdma);
+         //    HAL_UART_TxHalfCpltCallback(huart1);
+                 (void)(huart1);
+
+
+   //------ TC中断处理 ------  ( 使能uart的TC完成中断，会接着触发普通的uart中断)
+
+   if ( (__HAL_DMA_GET_FLAG(hdma, DMA_FLAG_TC) != 0 ))     //yes，CSR.8=1, 有TC中断标志
+      if (__HAL_DMA_GET_IT_SOURCE(hdma, DMA_IT_TC) != 0 )  //yes，CCR.8=1, TC中断已使能      
+
+         if ( CBR1 == 0 )   //yes，待发数量为0  (所有的数据已全部发出)
+               hdma->State = HAL_DMA_STATE_READY;            
+         
+         //清TC和HT中断标志CFCR.8
+         __HAL_DMA_CLEAR_FLAG(hdma, (DMA_FLAG_TC | DMA_FLAG_HT));
+         __HAL_UNLOCK(hdma);
+
+
+         //调用完成中断服务函数
+         //hdma->XferCpltCallback(hdma);
+
+             //CR1.6=1, 使能uart的TC完成中断  (会接着触发普通的uart中断)
+             UART_DMATransmitCplt(hdma);
+
+
+         
+---------------------
+
+
+功能：CR1.6=1, 使能TC完成中断
+
+参数：handle_GPDMA1_Channel1
+UART_DMATransmitCplt( *hdma )
+
+   if (hdma->Mode != DMA_LINKEDLIST_CIRCULAR)   //yes，
+   
+      huart1->TxXferCount = 0;            //作用，待理解
+
+      ATOMIC_SET_BIT(huart->Instance->CR1, USART_CR1_TCIE);  //CR1.6=1, 使能uart的TC完成中断
+ 
+   else    //no，忽略跳过
+
+      HAL_UART_TxCpltCallback(huart1);
+          UartReady = SET;
+
+ 
+
+
+======================================= uart1 tx中断处理 ========================================
+
+
+说明：只有很简单的功能，清0发送完成中断TC的标志， UartReady置1
+
+flow:
+
+     startup_stm32h503xx.s -- USART1_IRQHandler -- HAL_UART_IRQHandler -- UART_EndTransmit_IT -- HAL_UART_TxCpltCallback
+
+ 
+
+------------------
+
+
+USART1_IRQHandler( )
+
+  HAL_UART_IRQHandler(&huart1);
+
+
+------------------
+
+参数： huart1
+
+HAL_UART_IRQHandler( *huart )
+
+   uint32_t isrflags    = READ_REG(huart->Instance->ISR);
+   uint32_t cr1its      = READ_REG(huart->Instance->CR1);
+   uint32_t cr3its      = READ_REG(huart->Instance->CR3);
+
+ 
+   //处理发送完成中断
+   if (((isrflags & USART_ISR_TC) != 0 ) && ((cr1its & USART_CR1_TCIE) != 0 ))     //ISR.6=1, CR1.6=1, 有发送完成中断标志
+ 
+      //CR1.6=1,，禁止发送完成中断， UartReady置1
+      UART_EndTransmit_IT(huart);
+ 
+
+
+------------------
+
+
+功能：清0发送完成中断标志， UartReady置1
+
+参数： huart1
+UART_EndTransmit_IT( *huart )
+
+  //CR1.6=1,，禁止发送完成中断
+  ATOMIC_CLEAR_BIT(huart->Instance->CR1, USART_CR1_TCIE);
+
+  huart->gState = HAL_UART_STATE_READY;
+  huart->TxISR = NULL;
+
+  //HAL_UART_TxCpltCallback(huart);
+      UartReady = SET;
+  
+
+ 
+
+
+
+
+
+
+

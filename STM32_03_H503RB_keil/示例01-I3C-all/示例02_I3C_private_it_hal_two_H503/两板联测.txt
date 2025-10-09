@@ -1,0 +1,119 @@
+
+
+
+====================== 示例3： I3C主从机私有数据的例子 ==================
+
+
+测试顺序： 
+
+1. 先给两块板子上电  （可用杜邦线连接连接两块板子的3.3V）
+2. reset主机
+3. reset从机
+4. 再测试
+
+
+
+测试顺序： （org）
+
+1. 重编译烧录master
+2. 重编译烧录slave
+3. -在调试模式下运行主机，然后在正常模式下运行从机。
+
+This sequence will prevent a false startup phase on Target side
+as there is no high level on the bus, if the Target is started before the Controller.
+
+
+
+
+-------主机--README14.md---------
+
+第一步：
+   。第1次按下按钮
+
+   。I3C控制器通过HAL_I3C_Ctrl_DynAddrAssign（）启动动态地址分配。
+
+   。此过程允许控制器将动态地址与总线上连接的目标相关联。
+
+   。用户可以通过观察aTargetDesc.TARGET_BCR_DCR_PID字段中的内容来查看。
+
+第二步：
+
+   。
+I3C主机通过HAL_I3C_Ctrl_Transmit_IT（）向I3C目标发送aTxBuffer， 
+   。
+I3C主机通过HAL_I3C_Ctrl_Receive_IT（）接收aRxBuffer 
+
+I  。
+I3C从机通过HAL_I3C _Tgt_Receive_ID（）接收aRxBuffer 
+
+   。
+I3C从机通过HAL_I3C_Tgt_Transmit_IT（）发送一个TxBuffer
+I3C
+
+第三步：
+
+   。通过 通过HAL_I3C_GetState（）函数看第二步的结束
+   。通过Buffercmp（）比较aTxBuffer和aRxBuffer，以检查发送和接收的正确性
+
+说明：
+
+   -当传输过程完成时，LED2亮起。
+
+   -当接收过程完成时，LED2关闭。
+
+   -当传输/接收过程中出现错误时，LED2会缓慢切换。
+
+
+
+-------从机---README24.md--------
+
+   （按主机的操作）
+
+
+
+
+
+======================================================= 参考=======================================================
+
+
+
+
+====================== 示例2： I3C主机， I2C 从机的例子 ======================
+
+
+-------主机-----------
+
+1. 在用户按下控制器板上的用户按钮后的第一步中，
+I3C控制器通过发送aTxBuffer启动通信
+通过HAL_I3C_Ctrl_Transmit_DMA（）发送到I2C目标，I2C目标接收aRxBuffer。
+
+
+2. 当用户按下控制器板上的用户按钮时，第二步开始，
+I2C目标向I3C控制器发送aTxBuffer，I3C控制器通过HAL_I3C_Ctrl_Receive_DMA（）接收aRxBuffer。
+
+3. 这两个步骤的结束通过HAL_I3C_GetState（）函数结果进行监控。
+
+4. 
+最后，通过Buffercmp（）比较aTxBuffer和aRxBuffer，以检查缓冲区的正确性。
+
+5.  -当传输过程完成时，LED2亮起。
+
+    -当接收过程完成时，LED2关闭。
+
+    -当传输/接收过程中出现错误时，LED2会缓慢切换。
+
+
+
+-------从机-----------
+
+   （按主机的操作）
+
+
+
+
+
+
+
+
+
+

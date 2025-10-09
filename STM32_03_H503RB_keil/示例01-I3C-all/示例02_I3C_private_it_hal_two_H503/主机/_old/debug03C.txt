@@ -1,0 +1,107 @@
+
+常用：
+
+hi3c->pPrivateDesc   = pPrivateDesc;           // aPrivateDescriptor
+hi3c->pXferData      = pXferData;              // aContextBuffers
+
+
+ 
+
+==============hI3C=======================
+
+typedef struct __I3C_HandleTypeDef
+{
+  I3C_TypeDef                *Instance;                          
+  I3C_InitTypeDef            Init;                      
+  HAL_I3C_ModeTypeDef        Mode;        
+           
+  I3C_XferTypeDef            *pXferData;            
+  const I3C_CCCTypeDef       *pCCCDesc;                          
+  const I3C_PrivateTypeDef   *pPrivateDesc;                      
+
+  uint32_t                   ControlXferCount;           
+  uint32_t                   RxXferCount;                        
+  uint32_t                   TxXferCount;                        
+ 
+  DMA_HandleTypeDef          *hdmacr;               
+  DMA_HandleTypeDef          *hdmatx;          
+  DMA_HandleTypeDef          *hdmarx;         
+  DMA_HandleTypeDef          *hdmasr;      
+
+  HAL_LockTypeDef            Lock;                              
+  __IO HAL_I3C_StateTypeDef  State;           
+  __IO HAL_I3C_StateTypeDef  PreviousState;      
+  __IO uint32_t              ErrorCode;                          
+  HAL_StatusTypeDef(*XferISR)(struct __I3C_HandleTypeDef *hi3c,
+                              uint32_t itFlags,
+                              uint32_t itSources);                
+
+  void(*ptrTxFunc)(struct __I3C_HandleTypeDef *hi3c);     
+  void(*ptrRxFunc)(struct __I3C_HandleTypeDef *hi3c);            
+
+} I3C_HandleTypeDef;
+
+  
+
+HAL_I3C_AddDescToFrame:
+
+      hi3c->ErrorCode      = HAL_I3C_ERROR_NONE;
+      hi3c->pCCCDesc       = pCCCDesc;             // null
+      hi3c->pPrivateDesc   = pPrivateDesc;         // aPrivateDescriptor //私有数据结构体，分拆成下面的部分control数据和私有数据数组
+      hi3c->pXferData      = pXferData;            // aContextBuffers  //control数据和要发送的私有数据数组
+      hi3c->RxXferCount    = 0;
+      hi3c->TxXferCount    = 0;
+
+HAL_I3C_Ctrl_Transmit_IT:
+
+      hi3c->State         = HAL_I3C_STATE_BUSY_TX;
+      hi3c->TxXferCount   = hi3c->pXferData->TxBuf.Size;  //5
+      hi3c->XferISR       = I3C_Ctrl_Tx_ISR;
+
+      hi3c->ptrTxFunc = &I3C_TransmitWordTreatment;
+
+
+==============aContextBuffers=======================
+
+  aContextBuffers[0].CtrlBuf.pBuffer = aControlBuffer;    //在本例，每次只有一条ccc指令，aControlBuffer没必要定义成一个数组，其实用一个u32的变量就可以了
+  aContextBuffers[0].CtrlBuf.Size    = 1;
+  aContextBuffers[0].TxBuf.pBuffer   = aTxBuffer;
+  aContextBuffers[0].TxBuf.Size      = TXBUFFERSIZE;  //5
+
+  aContextBuffers[1].CtrlBuf.pBuffer = aControlBuffer;
+  aContextBuffers[1].CtrlBuf.Size    = 1;
+  aContextBuffers[1].RxBuf.pBuffer   = aRxBuffer;
+  aContextBuffers[1].RxBuf.Size      = RXBUFFERSIZE;  //5
+
+
+==============aPrivateDescriptor=======================
+
+I3C_PrivateTypeDef aPrivateDescriptor[2] =
+                                          {
+                                            { 62 ,   {aTxBuffer,   5},     {NULL,         0},     0<<16  },
+                                            { 62 ,   {NULL,          0},     {aRxBuffer,  5},    1<<16   }
+                                          };
+
+
+
+
+
+==================hi3c->State=====================
+
+typedef enum
+{
+  HAL_I3C_STATE_RESET       = 0x00,   
+  HAL_I3C_STATE_READY       = 0x10,   
+  HAL_I3C_STATE_BUSY        = 0x20,   
+  HAL_I3C_STATE_BUSY_TX     = 0x21,   
+  HAL_I3C_STATE_BUSY_RX     = 0x22,   
+  HAL_I3C_STATE_BUSY_TX_RX  = 0x23,   
+  HAL_I3C_STATE_BUSY_DAA    = 0x24,   
+  HAL_I3C_STATE_LISTEN      = 0x30,   
+  HAL_I3C_STATE_ABORT       = 0x60,   
+  HAL_I3C_STATE_ERROR       = 0xE0,  
+
+} HAL_I3C_StateTypeDef;
+
+
+

@@ -1,0 +1,142 @@
+#define TARGET1_DYN_ADDR        0x32
+
+#define LL_I3C_DIRECTION_WRITE             0               //0<<16
+#define LL_I3C_DIRECTION_READ              I3C_CR_RNW      //1<<16
+
+
+#define READ_BIT(REG, BIT)    ((REG) & (BIT))
+#define CLEAR_REG(REG)        ((REG) = (0x0))
+#define WRITE_REG(REG, VAL)   ((REG) = (VAL))
+#define READ_REG(REG)         ((REG))
+#define MODIFY_REG(REG, CLEARMASK, SETMASK)  WRITE_REG((REG), (((READ_REG(REG)) & (~(CLEARMASK))) | (SETMASK)))
+
+
+
+------------------------------------------
+
+#define I3C_TIMINGR1_FREE_Pos               (16U)
+
+
+    timing_value = ((uint32_t)(I3C_InitStruct->CtrlBusCharacteristic.SDAHoldTime)                               |
+                    (uint32_t)(I3C_InitStruct->CtrlBusCharacteristic.WaitTime)                                  |
+                    ((uint32_t)I3C_InitStruct->CtrlBusCharacteristic.BusFreeDuration <<  I3C_TIMINGR1_FREE_Pos) |    //16
+                    (uint32_t)(I3C_InitStruct->CtrlBusCharacteristic.BusIdleDuration));
+
+
+
+---------------------------------------------
+
+#define MODIFY_REG(REG, CLEARMASK, SETMASK)  WRITE_REG((REG), (((READ_REG(REG)) & (~(CLEARMASK))) | (SETMASK)))
+
+uint32_t uwCCCMessage[0xFF] = {0};
+
+
+
+----------------------------------------------
+
+
+#define Direct_GETPID           0x8D   //获取从机的pid
+#define Direct_GETBCR           0x8E   //获取从机的bcr
+#define Direct_GETDCR           0x8F   //获取从机的dcr
+#define Direct_GETMWL           0x8B   //获取从机的最大写入长度
+#define Direct_GETMRL           0x8C   //获取从机的最大读取长度
+#define Direct_GETSTATUS        0x90   //获取从机活动时的状态
+
+
+uint8_t aRxBuffer[0x10];
+
+
+typedef struct
+{
+  uint8_t   *pBuffer;  
+  uint32_t  Size;  
+    
+} I3C_DataTypeDef;
+
+typedef struct
+{
+  uint8_t            TargetAddr;  
+  uint8_t            CCC;                                                              
+  I3C_DataTypeDef    CCCBuf;                                             
+  uint32_t           Direction;   
+
+} I3C_CCCTypeDef;
+
+
+I3C_CCCTypeDef aGET_CCCList[] =
+{
+  Target Addr    CCC Value    CCC data pointer     CCC size         Direction       
+
+    { 32H,          8D,          {NULL,                  6},             1<<16 },     //GETPID
+    { 32H,          8E,          {NULL,                  1},             1<<16 },     //GETBCR
+    { 32H,          8F,          {NULL,                  1},             1<<16 },     //GETDCR
+
+    { 32H,          8B,          {NULL,                  2},             1<<16 },     //GETMWL
+    { 32H,          8C,          {NULL,                  2},             1<<16 },     //GETMRL
+
+    { 32H,          90,          {NULL,                  2},             1<<16 },     //GETSTATUS
+};
+
+
+--------------------------------------------
+
+uint8_t aTxBuffer[0x10];
+
+uint8_t aSETMWL_data[2] = {0x0, 0x4};
+uint8_t aSETMRL_data[2] = {0x0, 0x4};
+
+I3C_CCCTypeDef aSET_CCCList[] =
+{
+  Target Addr   CCC Value    CCC data pointer       CCC size         Direction      
+
+    { 32H,          89,          { {0x0, 0x4},          2},             0<<16 },     //SETMWL   -- 对应 8B
+    { 32H,          8A,          { {0x0, 0x4},          2},             0<<16 },     //SETMRL   -- 对应 8C
+};
+
+
+char* aCommandCode[] = {
+  "GETPID",
+  "GETBCR",
+  "GETDCR",
+  "GETMWL",
+  "GETMRL",
+  "GETSTATUS"};
+
+-------------------------------
+
+typedef struct {
+  char *        TARGET_NAME;          
+  uint32_t      TARGET_ID;            
+  uint64_t      TARGET_BCR_DCR_PID;   
+  uint8_t       STATIC_ADDR;          
+  uint8_t       DYNAMIC_ADDR;         
+} TargetDesc_TypeDef;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

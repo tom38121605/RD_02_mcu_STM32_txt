@@ -1,0 +1,63 @@
+
+
+================================I3C 动态分配地址 resp=========================================
+
+
+
+------------------
+
+main
+
+
+    MX_I3C1_Init();
+    
+    MX_ICACHE_Init();     //初始化指令缓存  （无关，忽略）
+
+
+
+    while (1)
+ 
+
+
+        if (LL_I3C_IsActiveFlag_DAUPD(I3C1))   //问 EVR.24==1  //有“收到广播地址更新”的标记
+
+            LL_I3C_ClearFlag_DAUPD(I3C1);  //EVR.24=0
+            LED_Toggle();
+
+
+        if (LL_I3C_IsActiveFlag_MRLUPD(I3C1))  //问 EVR.26==1   //有“收到最大接收长度”的标记   （在MAXRLR.15-0中读取最大接收长度）
+ 
+            if ( MAXRLR.15-0 != 4)  
+                Error_Handler();
+ 
+            LL_I3C_ClearFlag_MRLUPD(I3C1);     //EVR.26=0        
+            LED_Toggle();
+
+
+        if (LL_I3C_IsActiveFlag_MWLUPD(I3C1))   //问 EVR.25==1    //有“收到最大写入长度”的标记   （在MAXWLR.15-0中读取最大写入长度）
+  
+            if ( MAXWLR.15-0 != 4 ) 
+                Error_Handler();
+ 
+            LL_I3C_ClearFlag_MWLUPD(I3C1);   //EVR.25=0
+            LED_Toggle();
+
+     
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

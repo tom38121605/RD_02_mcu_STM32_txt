@@ -1,0 +1,91 @@
+
+ 
+
+#define LL_DMA_CHANNEL_0      0
+
+#define BUFFER_SIZE           32
+
+
+static const uint32_t sfrom[BUFFER_SIZE] =
+{
+  0x01020304, 0x05060708, 0x090A0B0C, 0x0D0E0F10,
+  0x11121314, 0x15161718, 0x191A1B1C, 0x1D1E1F20,
+  0x21222324, 0x25262728, 0x292A2B2C, 0x2D2E2F30,
+  0x31323334, 0x35363738, 0x393A3B3C, 0x3D3E3F40,
+  0x41424344, 0x45464748, 0x494A4B4C, 0x4D4E4F50,
+  0x51525354, 0x55565758, 0x595A5B5C, 0x5D5E5F60,
+  0x61626364, 0x65666768, 0x696A6B6C, 0x6D6E6F70,
+  0x71727374, 0x75767778, 0x797A7B7C, 0x7D7E7F80
+};
+
+static uint32_t aDST_Buffer[BUFFER_SIZE];
+
+
+
+-----------------------
+
+
+typedef struct
+{
+  uint32_t SrcAddress;        
+  uint32_t DestAddress;       
+  uint32_t Direction;         
+  uint32_t BlkHWRequest;      
+  uint32_t DataAlignment;             
+
+  uint32_t SrcBurstLength;    
+  uint32_t DestBurstLength;    
+  uint32_t SrcDataWidth;        
+  uint32_t DestDataWidth;       
+  uint32_t SrcIncMode;                
+
+  uint32_t DestIncMode;        
+  uint32_t Priority;          
+  uint32_t BlkDataLength;      
+  uint32_t BlkRptCount;        
+  uint32_t TriggerMode;               
+
+  uint32_t TriggerPolarity;     
+  uint32_t TriggerSelection;    
+  uint32_t Request;                 
+  uint32_t TransferEventMode;       
+  uint32_t DestHWordExchange;        
+
+  uint32_t DestByteExchange;      
+  uint32_t SrcByteExchange;        
+  uint32_t SrcAllocatedPort;       
+  uint32_t DestAllocatedPort;      
+  uint32_t LinkAllocatedPort;         
+
+  uint32_t LinkStepMode;        
+  uint32_t SrcAddrUpdateMode;      
+  uint32_t DestAddrUpdateMode;      
+  uint32_t SrcAddrOffset;          
+  uint32_t DestAddrOffset;            
+
+  uint32_t BlkRptSrcAddrUpdateMode;    
+  uint32_t BlkRptDestAddrUpdateMode;  
+  uint32_t BlkRptSrcAddrOffset;         
+  uint32_t BlkRptDestAddrOffset;    
+  uint32_t LinkedListBaseAddr;        
+
+  uint32_t LinkedListAddrOffset;      
+  uint32_t Mode;                     
+ 
+} LL_DMA_InitTypeDef;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

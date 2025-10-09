@@ -1,0 +1,1027 @@
+
+
+
+疑问：hi3c->TxXferCount的作用？
+答：  在I3C_Ctrl_Tx_ISR的I3C_TransmitWordTreatment中用，发4个数据后，长度减4，只要它大于0，就继续发送
+
+
+待优化1： 数组 aTxBuffer自己把值赋给自己 
+        I3C_FillTxBuffer_Private（）
+答：加一个PreTxBuffer的数组给aTxBuffer赋值，逻辑会更清晰一些 （待修改） //修改点：或是aPrivateDescriptor里面 (已确认是这里，待进一步验证)
+
+待优化2： 在本例中，每次只有一条ccc指令，aControlBuffer没必要定义成一个数组，其实定义成一个u32的变量就可以了
+
+
+
+注意1：待优化，接收的数组aRxBuffer最好设置为4的整数倍来测试 （可省略一下if判断）
+
+
+================================I3C init=========================================
+
+main
+
+  MX_I3C1_Init();  //先忽略跳过
+
+
+
+================================I3C 动态分配地址=========================================
+
+
+
+//先忽略跳过
+
+
+---------------------------
+
+
+main
+
+  do
+  {
+    status = HAL_I3C_Ctrl_DynAddrAssign(&hi3c1, &aTargetPayload[uwTargetCount], I3C_ONLY_ENTDAA, 10000);
+
+    if (status == HAL_BUSY)
+    {
+      /* Update Payload on aTargetDesc */
+      targetPayload = aTargetPayload[uwTargetCount];
+
+      aTargetDesc[uwTargetCount]->TARGET_BCR_DCR_PID = targetPayload;
+
+      /* Send associated dynamic address */
+      if (HAL_I3C_Ctrl_SetDynAddr(&hi3c1, aTargetDesc[uwTargetCount]->DYNAMIC_ADDR) != HAL_OK)
+      {
+        /* Error_Handler() function is called when error occurs. */
+        Error_Handler();
+      }
+      uwTargetCount++;
+    }
+  }while (status == HAL_BUSY);  
+  
+
+  /* Check if the PID has been updated. */
+  for (uwTargetIndex = 0; uwTargetIndex < uwTargetCount; uwTargetIndex++)
+  {
+    if (aTargetDesc[uwTargetIndex]->TARGET_BCR_DCR_PID == 0)
+    {
+      /* Error_Handler() function is called if the PID has not been updated. */
+      Error_Handler();
+    }
+  }
+
+
+
+================================ I3C 发送private data =========================================
+
+准备写入数据：
+
+步骤0： 使能可仲裁包头 7EW
+        CFGR.2=0
+
+步骤0： 准备指令：把 aPrivateDescriptor 加入到 aControlBuffer[0]里  （以备下一步写入CR）
+              hi3c->ControlXferCount = aContextBuffers[0].CtrlBuf.Size = 1; 
+              aControlBuffer[0] = 5<<0 | 0<<16 | 32H << 17 | 2<<27 | 1<<31 );   //把发送数量5，从机地址32w，私有数据模式，带stop 放入CR的预备变量aControlBuffer[0]中
+
+步骤0： 准备数据：把要发送的数据aTxBuffer连接到hi3c.pXferData.TxBuf.pBuffer里
+
+          aTxBuffer[0]=0x31；
+          aTxBuffer[0]=0x32；
+
+          hi3c.pXferData.TxBuf.pBuffer[0] = aContextBuffers.TxBuf.pBuffer[0] = (aTxBuffer) = hi3c.pPrivateDesc[0].TxBuf.pBuffer[0] = (aTxBuffer) //后面的可理解为aPreTxBuffer
+          hi3c->TxXferCount = global_tx_size = hi3.pPrivateDesc[0].TxBuf.Size = aContextBuffers[0].TxBuf.Size = 5
+
+
+步骤1： 使能I3C的4个子中断：帧完成中断，ccc-fifo 没满中断，tx-fifo没满中断，出错中断
+步骤2： CFGR.30=1，请求I3C发送
+
+
+在中断中写入数据：
+
+步骤11： 等待，直到EVR.2(CFNFF)标志置1时 (CFIFO未满中断)，先发送ccc指令
+               CR = aControlBuffer[0] = 5<<0 | 0<<16 | 32H << 17 | 2<<27 | 1<<31 );   //把发送数量5，从机地址32w，私有数据模式，带stop
+
+步骤12： 等待，直到EVR.4(TXFNFF)置1时(TXFIFO未满中断)，发送私有数据到从机
+                TDWR = aTxBuffer
+                i3c.TxXferCount -= 4
+                循环，直到所有的 aTxBuffer中的数据发送完毕
+
+步骤13： 遇到stop时EVR.9(FCF)置1数据帧完成 ，关闭中断，翻转小灯
+
+
+疑问：hi3c->TxXferCount的作用？
+答：  在I3C_Ctrl_Tx_ISR的I3C_TransmitWordTreatment中用，发4个数据后，长度减4，只要它大于0，就继续发送
+
+
+flow:
+
+    main -- HAL_I3C_AddDescToFrame  -- I3C_ControlBuffer_PriorPreparation -- I3C_Xfer_PriorPreparation 
+    -- HAL_I3C_Ctrl_Transmit_IT -- (hi3c->XferISR = I3C_Ctrl_Tx_ISR) -- (hi3c->ptrTxFunc = I3C_TransmitWordTreatment) -- I3C_Enable_IRQ -- LL_I3C_RequestTransfer
+
+
+数据流：hi3c->pPrivateDes = aPrivateDescriptor[0] 
+数据流：hi3c->pXferData = aContextBuffers[0] 
+
+数据流：hi3c.pXferData.CtrlBuf.pBuffer[0] = aContextBuffers[0].CtrlBuf.pBuffer = aControlBuffer[0] = 接收数量5 + 从机地址32r + 私有数据模式 + stop
+
+
+数据流：hi3c.ControlXferCount = aContextBuffers[0].CtrlBuf.Size = 1 
+
+
+数据流：hi3c.pXferData.TxBuf.pBuffer[0] = aContextBuffers.TxBuf.pBuffer[0] = (aTxBuffer) 
+        = hi3c.pPrivateDesc[0].TxBuf.pBuffer[0] = aPrivateDescriptor[0].TxBuf.pBuffer[0] = (aTxBuffer) //后面的aTxBuffer可理解为aPreTxBuffer
+数据流：hi3c->TxXferCount = global_tx_size = hi3.pPrivateDesc[0].TxBuf.Size = aContextBuffers[0].TxBuf.Size = 5
+
+数据流：I3C_TransmitWordTreatment --> hi3c.ptrTxFunc
+数据流：I3C_Ctrl_Tx_ISR           --> hi3c.XferISR
+ 
+
+------------------
+
+main
+
+ 
+  aContextBuffers[0].CtrlBuf.pBuffer = aControlBuffer;  //在本例，每次只有一条ccc指令，aControlBuffer没必要定义成一个数组，其实用一个u32的变量就可以了
+  aContextBuffers[0].CtrlBuf.Size    = 1;
+  aContextBuffers[0].TxBuf.pBuffer   = aTxBuffer;
+  aContextBuffers[0].TxBuf.Size      = TXBUFFERSIZE;  //2
+
+   ......
+
+
+   //CFGR.2=0，使能可仲裁包头 7EW
+      把发送数量5，从机地址32w，私有数据模式，带stop 放入CR的预备变量aControlBuffer中
+      把要发送的数据放aTxBuffer里，把发送长度放hi3c->TxXferCount里 
+   HAL_I3C_AddDescToFrame(  &hi3c1, NULL, &aPrivateDescriptor[0],  &aContextBuffers[0],  aContextBuffers[0].CtrlBuf.Size=1, 9000 0000 );     
+
+
+   //指定以后中断里的传输函数为 I3C_TransmitWordTreatment
+      使能帧完成中断，ccc-fifo 没满中断，tx-fifo没满中断，出错中断
+      CFGR.30=1，使能I3C发送
+   HAL_I3C_Ctrl_Transmit_IT( &hi3c1, &aContextBuffers[0] );
+
+
+-------------
+
+功能：CFGR.2=0，使能可仲裁包头 7EW
+      把发送数量5，从机地址32w，私有数据模式，带stop 放入CR的预备变量aControlBuffer中
+      把要发送的数据放aTxBuffer里，把发送长度放hi3c->TxXferCount里 
+
+数据流：hi3c->pPrivateDes = aPrivateDescriptor[0] 
+数据流：hi3c->pXferData = aContextBuffers[0] 
+
+数据流：aControlBuffer[0] = hi3c.pXferData.CtrlBuf.pBuffer[0] = 发送数量5 + pPrivateDesc[0].从机地址32w + 私有数据模式 + stop 
+数据流：hi3c.ControlXferCount = aContextBuffers[0].CtrlBuf.Size = 1 
+
+参数：hi3c1,  NULL,  &aPrivateDescriptor[0],   &aContextBuffers[0],   aContextBuffers[0].CtrlBuf.Size=1,   9000 0000 (表示stop + 私有数据模式 + 使能7E)
+HAL_I3C_AddDescToFrame(  *hi3c,   *pCCCDesc,  *pPrivateDesc,  *pXferData,   nbFrame,   option)
+ 
+   HAL_I3C_StateTypeDef     handle_state;
+   HAL_StatusTypeDef    status = HAL_OK;
+
+      handle_state = hi3c->State;   //？
+
+      hi3c->ErrorCode       = HAL_I3C_ERROR_NONE;
+      hi3c->pCCCDesc         = pCCCDesc;             // null
+      hi3c->pPrivateDesc   = pPrivateDesc;           // aPrivateDescriptor[0]    //私有数据结构体，分拆成下面的部分control数据和私有数据数组
+      hi3c->pXferData       = pXferData;             // aContextBuffers[0]   //control数据和要发送的私有数据数组
+      hi3c->RxXferCount    = 0;
+      hi3c->TxXferCount    = 0;
+
+
+      //下面5句可以忽略(因私有数据不满足下面的条件)
+      if ((( option & f<<27 ) == (4+2) << 27 ) || (( option & f<<27 ) == (2+1) << 27 ))  //no  (因私有数据是 2<<27 )
+            status = HAL_ERROR;        
+      else  //yes    
+         if ((pPrivateDesc == NULL) || (pXferData == NULL) || (nbFrame <= 0))  //no
+            status = HAL_ERROR;
+
+       
+      if (status == HAL_OK)   //yes
+
+         if ( (handle_state == HAL_I3C_STATE_READY) || (handle_state == HAL_I3C_STATE_LISTEN) )   //yes      
+
+            //CFGR.2=0，使能可仲裁包头 7EW。把hi3c.pPrivateDesc(即aPrivateDescriptor)中的部分数据赋值给aControlBuffer
+              把发送数量5，从机地址32w，私有数据模式，带stop 放入CR的预备变量aControlBuffer中
+            //I3C_ControlBuffer_PriorPreparation(hi3c, nbFrame, option);
+                CFGR.2=0;                                                         //使能可仲裁包头 7EW
+                hi3c->ControlXferCount = aContextBuffers[0].CtrlBuf.Size = 1; 
+                aControlBuffer[0] = 5<<0 | 0<<16 | 32H << 17 | 2<<27 | 1<<31 );   //CR，把发送数量5，从机地址32w，私有数据模式，带stop 放入CR的预备变量aControlBuffer[0]中
+           
+            //把要发送的数据放aTxBuffer里，把发送长度放hi3c->TxXferCount里 
+            //I3C_Xfer_PriorPreparation(hi3c, nbFrame, option);       
+                global_tx_size += hi3c->pPrivateDesc[0].TxBuf.Size = ;  //5
+                aTxBuffer[] = aTxBuffer[]；    //考虑把后者修改成preTxbuffer
+     
+         else       
+            status = HAL_BUSY;
+     
+
+--------------
+
+功能：CFGR.2=0，使能可仲裁包头 7EW。把hi3c.pPrivateDesc(即aPrivateDescriptor)中的部分数据赋值给aControlBuffer
+      把发送数量5，从机地址32w，私有数据模式，带stop 放入CR的预备变量aControlBuffer中
+
+数据流：aControlBuffer[0] = hi3c.pXferData.CtrlBuf.pBuffer[0] = 发送数量5 + pPrivateDesc[0].从机地址32w + 私有数据模式 + stop 
+数据流：hi3c.ControlXferCount = aContextBuffers[0].CtrlBuf.Size = 1;
+参数：hi3c1,   1,   9000 0000 
+I3C_ControlBuffer_PriorPreparation( *hi3c,  counter,  option )
+ 
+   HAL_StatusTypeDef status = HAL_OK;
+   u32 nb_define_bytes;  
+   u32 stop_condition;
+   u32 nb_data_bytes;
+   u32 index;
+
+
+   if (hi3c->pXferData->CtrlBuf.pBuffer == NULL)  //no     //aContextBuffers.CtrlBuf.pBuffer = aControlBuffer   
+      ......
+
+   else
+   
+      #--nb_define_bytes = (option & I3C_DEFINE_BYTE_MASK);     //0    (作废，在私有数据模式中没有用到)
+
+      stop_condition   = (option & I3C_RESTART_STOP_MASK);   //1<<31
+
+      //CFGR.2=0，使能可仲裁包头 7EW                  //-easy
+      if ((option &  04 ) == 04 )  //no   //已理解   （可去掉前面的7E包头）
+         LL_I3C_DisableArbitrationHeader(hi3c->Instance);
+      
+      else  //yes      
+         LL_I3C_EnableArbitrationHeader(I3C1);    //使能可仲裁包头 7EW
+            CFGR.2=0;
+      
+      //设置CR值                       //-easy
+      if ((option & I3C_OPERATION_TYPE_MASK) == LL_I3C_CONTROLLER_MTYPE_CCC)   //no   问6<<27, 不是Broadcast CCC         
+         ......      
+
+      else if ((option & I3C_OPERATION_TYPE_MASK) == LL_I3C_CONTROLLER_MTYPE_DIRECT)  //no  问 3<<27, 不是Direct CCC
+        ......
+      
+      else                                                                           //yes   2<<27, 是Private      
+
+         if (hi3c->pXferData->CtrlBuf.Size <  counter)        //no     //aContextBuffers.CtrlBuf.Size = 1   （same）
+            status = HAL_ERROR;
+         
+         else  //yes
+                     
+            hi3c->ControlXferCount = counter;  //1
+
+            index=0；
+
+            if (hi3c->pPrivateDesc[0].Direction == HAL_I3C_DIRECTION_READ)  //no            
+               nb_data_bytes = hi3c->pPrivateDesc[0].RxBuf.Size;
+            
+            else  //yes            
+               nb_data_bytes = hi3c->pPrivateDesc[0].TxBuf.Size = aContextBuffers[0].TxBuf.Size;  //5            
+
+            //hi3c->pXferData->CtrlBuf.pBuffer[0] = 5 | pPrivateDesc[0].Direction |  pPrivateDesc[0].TargetAddr << I3C_CR_ADD_Pos  | (2<<27 & f<<27) | 1<<31 );
+               aControlBuffer[0] = 5<<0 | 0<<16 | 32H << 17 | 2<<27 | 1<<31 );   //CR，把发送数量5，pPrivateDesc[0].从机地址32w，私有数据模式，带stop 放入CR的预备变量aControlBuffer[0]中
+         
+
+
+-------------
+
+功能：把要发送的数据放aTxBuffer里，把发送长度放hi3c->TxXferCount里  
+
+数据流：hi3c.pXferData.TxBuf.pBuffer[0] = aContextBuffers.TxBuf.pBuffer[0] = (aTxBuffer) 
+        = hi3c.pPrivateDesc[0].TxBuf.pBuffer[0] = aPrivateDescriptor[0].TxBuf.pBuffer[0] = (aTxBuffer) //后面的aTxBuffer可理解为aPreTxBuffer
+数据流：hi3c->TxXferCount = global_tx_size = hi3.pPrivateDesc[0].TxBuf.Size = aContextBuffers[0].TxBuf.Size = 5
+
+参数：hi3c1,   1,   9000 0000   (后面两个参数，只做判断用，可理解为无实际用处)
+I3C_Xfer_PriorPreparation(  *hi3c, counter,  option )
+
+   HAL_StatusTypeDef status   = HAL_OK;
+   u32 current_tx_index = 0;
+   u32 global_tx_size    = 0;
+   u32 global_rx_size    = 0;
+   u32 nb_tx_frame       = 0;
+   u32 direction;
+
+
+   descr_index=0；//for循环的第一次，只循环了1次
+
+      if ((option & I3C_OPERATION_TYPE_MASK) == LL_I3C_CONTROLLER_MTYPE_DIRECT)  /no  问 3<<27, 不是Direct CCC 
+           ......
+
+      else if ((option & I3C_OPERATION_TYPE_MASK) == LL_I3C_CONTROLLER_MTYPE_CCC)   //no   问6<<27, 不是Broadcast CCC    
+             ......
+
+      else                                                                          //yes   问2<<27, 是Private       
+         //direction = hi3c->pPrivateDesc[descr_index].Direction;   
+            direction = aPrivateDescriptor[0].Direction;          //0<<16
+
+         if (direction == HAL_I3C_DIRECTION_WRITE)  //yes, write
+         
+            nb_tx_frame += 1;  //作用是什么 （答：或是在统计数据模式的数量，数据模式只能是一种，意思是有1条发1条不要累积，不要把两种数据模式混在一起）
+
+            global_tx_size += hi3c->pPrivateDesc[0].TxBuf.Size;  //5
+
+           //if ((global_tx_size > 5) || (current_tx_index > aContextBuffers->TxBuf.Size) || (hi3c->pXferData->TxBuf.pBuffer == NULL))  //no
+             if ((global_tx_size > 5) || (current_tx_index > 5) || (aTxBuffer == NULL))  
+               status = HAL_ERROR;
+            
+            else            
+
+               //待理解，数组，aTxBuffer自己把值赋给自己
+               //current_tx_index = I3C_FillTxBuffer_Private( hi3c,  descr_index,  hi3c->pPrivateDesc[0].TxBuf.Size,  current_tx_index);
+               //   current_tx_index = I3C_FillTxBuffer_Private( hi3c, 0, 5,  0 );
+                    aTxBuffer[] = aTxBuffer[]；    //考虑把后者修改成preTxbuffer
+                     
+         else    //no, read         
+            global_rx_size += hi3c->pPrivateDesc[0].RxBuf.Size;
+
+
+   //先忽略下面4句
+   if (status == HAL_OK)  //yes
+      if (LL_I3C_GetTxFIFOThreshold(I3C1) == LL_I3C_TXFIFO_THRESHOLD_4_4)  //yes     //问CFGR.14=1   
+         if (nb_tx_frame > 1)  //no  //nb_tx_frame=1
+            status = HAL_ERROR;               
+   
+   //把发送长度放hi3c->TxXferCount里
+   if (status == HAL_OK)   //yes
+
+      //if (global_rx_size > hi3c->pXferData->RxBuf.Size)  //no
+        if ( 0 > 5 )  //no  
+            status = HAL_ERROR;
+      
+      else  //yes      
+         hi3c->RxXferCount = global_rx_size;  //0      
+
+      //hi3c->TxXferCount = global_tx_size;  //5
+        hi3c->TxXferCount = 5；
+  
+
+-----------
+
+功能：待理解，数组，aTxBuffer自己把值赋给自己 （考虑以后修改成preTxbuffer）
+
+参数：hi3c, 0, 5,  0
+I3C_FillTxBuffer_Private(  *hi3c,  indexDesc, txSize, txCurrentIndex)
+
+  index_tx = txCurrentIndex;  //0
+
+  for (  index = 0 ; index < 5; index++)
+  
+    //hi3c->pXferData->TxBuf.pBuffer[index_tx] = hi3c->pPrivateDesc[0].TxBuf.pBuffer[index];
+      aTxBuffer[index_tx] = aTxBuffer[index];   //待理解，数组，aTxBuffer自己把值赋给自己 （考虑以后修改成preTxbuffer）
+
+    index_tx++;
+
+  return index_tx;  //5
+
+
+------
+
+功能：指定以后中断里的传输函数为 I3C_TransmitWordTreatment
+      使能帧完成中断，ccc-fifo 没满中断，tx-fifo没满中断，出错中断
+      CFGR.30=1，使能I3C发送
+
+数据流：I3C_TransmitWordTreatment --> hi3c.ptrTxFunc
+数据流：I3C_Ctrl_Tx_ISR           --> hi3c.XferISR
+
+参数： hi3c1,  aContextBuffers[0]
+HAL_I3C_Ctrl_Transmit_IT(  *hi3c,  *pXferData)
+
+      HAL_StatusTypeDef status = HAL_OK;
+
+      handle_state = hi3c->State;  //？  （I3C状态机）
+
+         hi3c->ErrorCode       = HAL_I3C_ERROR_NONE;
+         hi3c->State           = HAL_I3C_STATE_BUSY_TX;
+         hi3c->pXferData       = pXferData;                  // aContextBuffers  //control数据和要发送的私有数据数组
+         hi3c->TxXferCount     = hi3c->pXferData->TxBuf.Size;
+         hi3c->XferISR          = I3C_Ctrl_Tx_ISR;
+
+         if (LL_I3C_GetTxFIFOThreshold(I3C1) == LL_I3C_TXFIFO_THRESHOLD_1_4)  //no （不是一次只可发1个字节）
+         
+            hi3c->ptrTxFunc = &I3C_TransmitByteTreatment;
+         
+         else   //yes，是一次可发4个字节
+         
+            //指定传输函数 I3C_TransmitWordTreatment
+            hi3c->ptrTxFunc = &I3C_TransmitWordTreatment;
+         
+
+         //I3C_Enable_IRQ(hi3c, I3C_XFER_CONTROLLER_TX_IT);
+         //  IER  = HAL_I3C_IT_FCIE | HAL_I3C_IT_CFNFIE | HAL_I3C_IT_TXFNFIE | HAL_I3C_IT_ERRIE;
+               IER  = 1<<9 | 1<<2 | 1<<4 | 1<<11;  //使能帧完成中断，ccc-fifo 没满中断，tx-fifo没满中断，出错中断 （这4个都有用，前3个一定会用到）
+
+
+         //LL_I3C_RequestTransfer(I3C1);   // 使能I3C发送
+            CFGR.30=1; 
+
+
+
+      
+================================I3C tx 中断处理=========================================
+
+
+flow：
+
+   I3C1_EV_IRQHandler -- HAL_I3C_EV_IRQHandler -- (hi3c->XferISR) -- I3C_Ctrl_Tx_ISR -- I3C_ControlDataTreatment -- I3C_TransmitWordTreatment 
+   --  I3C_StateUpdate -- HAL_I3C_CtrlTxCpltCallback -- BSP_LED_Toggle
+
+
+{ 数据流：hi3c->pPrivateDesc   =  aPrivateDescriptor }
+{ 数据流：hi3c->pXferData      =  aContextBuffers    }
+
+数据流：aControlBuffer[0] --> CR
+数据流：aTxBuffer        --> I3Cx->TDWR 
+数据流：aTxBuffer += 4;
+数据流：hi3c->TxXferCount -= 4 
+
+
+---------------------------------------
+
+功能：I3C硬件中断入口
+
+I3C1_EV_IRQHandler( )
+ 
+  HAL_I3C_EV_IRQHandler(&hi3c1);
+
+
+----------
+
+功能：中断处理函数
+
+HAL_I3C_EV_IRQHandler(  *hi3c) 
+
+  it_flags   = READ_REG(I3C1->EVR); 
+
+  it_sources = READ_REG(I3C1->IER);
+
+ 
+  if (hi3c->XferISR != NULL)
+ 
+    //响应I3C的tx中断
+      发送ccc指令(7EW)
+      发送私有数据aTxBuffer到从机
+      发送结束后，关闭中断，翻转小灯
+    //hi3c->XferISR(hi3c, it_flags, it_sources);
+        I3C_Ctrl_Tx_ISR( hi3c, EVR, IER );
+
+
+
+-------------
+
+功能：响应I3C的tx中断
+      发送ccc指令(7EW)
+      发送私有数据aTxBuffer到从机
+      发送结束后，关闭中断，翻转小灯
+
+数据流：aControlBuffer[0] --> CR
+数据流：aTxBuffer       --> I3Cx->TDWR 
+数据流：aTxBuffer += 4;
+数据流：hi3c->TxXferCount -= 4 
+
+参数：hi3c, EVR, IER
+I3C_Ctrl_Tx_ISR(  *hi3c, itFlags, itSources)   
+
+   if (hi3c->State == HAL_I3C_STATE_BUSY_TX)  //yes
+
+      if ( EVR.CFNFF==1 && IER.CFNFIE==1 )  //yes , EVR.2=1, IER.2=1 , 有cfifo没满中断
+      
+         if (hi3c->ControlXferCount > 0 )  //yes ， 1
+
+            //发送ccc指令，设置私有数据模式，地址32w： 5<<0 | 0<<16 | 32H << 17 | 2<<27 | 1<<31 
+            //I3C_ControlDataTreatment(hi3c);
+               CR = aControlBuffer[0];
+
+
+       //发送中断处理  （见到一次中断标志，发送一个word数据，即一次发送4个字节。等下次中断再发送4个字节）
+      if ( EVR.TXFNFF==1 && IER.TXFNFIE==1 )   //yes , EVR.4=1, IER.4=1 , 有tx-fifo没满中断
+      
+         if (hi3c->TxXferCount > 0 )  //yes
+
+            //发送私有数据aTxBuffer到从机
+            //hi3c->ptrTxFunc(hi3c);
+            //   I3C_TransmitWordTreatment(hi3c);
+                   I3Cx->TDWR = aTxBuffer;                //aContextBuffers.TxBuf.pBuffer
+                   aTxBuffer += 4;
+                   hi3c->TxXferCount -= sizeof(u32);
+         
+      //帧完成中断处理
+      if ( EVR.FCF==1 && IER.FCIE==1 )   //yes , EVR.9=1, IER.9=1 , 有帧完成中断或有出错中断
+      
+         //LL_I3C_ClearFlag_FC(hi3c->Instance);
+             CEVR.CFCF=1;  //CEVR.9=1, 清中断标志EVR.9
+
+         if (hi3c->ControlXferCount == 0 )   //yes    //待打log，看执行下面哪个分支
+         
+            //I3C_Disable_IRQ(hi3c, I3C_XFER_CONTROLLER_TX_IT);
+               IER  &= ~（1<<9 | 1<<2 | 1<<4 | 1<<11）;    //关闭帧完成中断，ccc-fifo 没满中断，tx-fifo没满中断，出错中断
+ 
+            //I3C_StateUpdate(hi3c);
+               hi3c->State = HAL_I3C_STATE_READY; 
+               hi3c->XferISR = NULL;
+
+            hi3c->ErrorCode = HAL_I3C_ERROR_NONE;
+ 
+            //翻转小灯
+            //HAL_I3C_CtrlTxCpltCallback(hi3c);
+               BSP_LED_Toggle(LED2);
+ 
+
+         ?else
+            
+             hi3c->ErrorCode = HAL_I3C_ERROR_NONE;
+
+             //HAL_I3C_CtrlTxCpltCallback(hi3c);
+                     BSP_LED_Toggle(LED2);
+
+          //LL_I3C_RequestTransfer(I3C1);   // 使能I3C发送
+                CFGR.30=1; 
+
+ 
+
+---------
+
+//发送ccc指令(7EW)
+I3C_ControlDataTreatment(  *hi3c) 
+
+  if ( EVR.CFNFF == 1 )  //EVR.2=1. ccc-fifo非空
+ 
+    hi3c->ControlXferCount--;  //0
+
+    //WRITE_REG(hi3c->Instance->CR, *hi3c->pXferData->CtrlBuf.pBuffer);
+       CR = aControlBuffer[0];
+
+    //hi3c->pXferData->CtrlBuf.pBuffer++;
+       aControlBuffer->CtrlBuf.pBuffer++;  //1
+
+         
+--------
+
+功能：发送私有数据aTxBuffer到从机
+
+数据流：aTxBuffer -- TDWR
+I3C_TransmitWordTreatment( *hi3c)
+
+  while (EVR.4 == 1 )  //有tx-fifo没满中断
+
+    //LL_I3C_TransmitData32(hi3c->Instance, *(hi3c->pXferData->TxBuf.pBuffer));
+    //LL_I3C_TransmitData32( I3C1, *aTxBuffer );
+       I3Cx->TDWR = aTxBuffer;
+
+    aTxBuffer += 4;
+
+    if (hi3c->TxXferCount < 4 )    
+      hi3c->TxXferCount = 0;
+    
+    else    
+      hi3c->TxXferCount -= 4;
+
+
+ 
+ 
+ 
+
+ 
+================================I3C 接收private data =========================================
+
+准备接收数据：
+
+步骤0： 使能可仲裁包头 7EW
+        CFGR.2=0
+
+步骤1： 把 aPrivateDescriptor 加入到 aControlBuffer[0]里  （以备下一步写入CR）
+        hi3c->ControlXferCount = 1;
+        aControlBuffer[0] = 5<<0 | 0<<16 | 32H << 17 | 2<<27 | 1<<31 );   //CR，把接收数量5，从机地址32r，私有数据模式，带stop 
+
+步骤2： 把接收长度放hi3c->RxXferCount里   
+        hi3c->RxXferCount = global_rx_size = 5
+
+步骤3： 使能I3C的4个子中断：帧完成中断，ccc-fifo 没满中断，rx-fifo没满中断，出错中断
+
+步骤4： CFGR.30=1，请求I3C传输（含接收）
+
+
+在中断中接收数据：
+
+步骤11： 等待，直到EVR.2(CFNFF)标志置1时 (CFIFO未满中断)，先发送ccc指令
+         CR = aControlBuffer[0] = 5<<0 | 1<<16 | 32H << 17 | 2<<27 | 1<<31 );   //接收数量5，从机地址32r，私有数据模式，带stop 
+
+步骤12： 等待EVR.5(RXFNFF)置1(RXFIFO有数据中断)，接收从机的私有数据到aRxBuffer
+         aRxBuffer=RDWR 
+         i3c.RxXferCount -= 4
+         循环，直到所有从机的私有数据到aRxBuffer, 直到接收完毕
+
+步骤13： 遇到stop时EVR.9(FCF)置1数据帧完成 ，关闭中断，翻转小灯
+
+
+
+
+flow:
+
+    main -- HAL_I3C_AddDescToFrame  -- I3C_ControlBuffer_PriorPreparation -- I3C_Xfer_PriorPreparation 
+    -- HAL_I3C_Ctrl_Receive_IT --  (hi3c->XferISR = I3C_Ctrl_Rx_ISR) --  (hi3c->ptrRxFunc = I3C_ReceiveWordTreatment) -- I3C_Enable_IRQ -- LL_I3C_RequestTransfer
+
+
+数据流：aPrivateDescriptor[1] --> hi3c->pPrivateDes
+数据流：aContextBuffers[1] --> hi3c->pXferData
+
+数据流：hi3c->pXferData->CtrlBuf.pBuffer[0] = aContextBuffers[1].CtrlBuf.pBuffer = aControlBuffer[0] = 接收数量5 + 从机地址32r + 私有数据模式 + stop
+
+
+数据流：hi3c->TxXferCount = global_rx_size = hi3.pPrivateDesc[1].RxBuf.Size = aContextBuffers[1].RxBuf.Size = 5
+
+数据流：I3C_ReceiveWordTreatment --> hi3c.ptrRxFunc
+数据流：I3C_Ctrl_Rx_ISR           --> hi3c.XferISR
+
+
+---------------------------------
+
+
+main()
+
+    ......
+
+  aContextBuffers[1].CtrlBuf.pBuffer = aControlBuffer;
+  aContextBuffers[1].CtrlBuf.Size    = 1;
+  aContextBuffers[1].RxBuf.pBuffer   = aRxBuffer;
+  aContextBuffers[1].RxBuf.Size      = RXBUFFERSIZE;  //5
+
+
+   //CFGR.2=0,使能可仲裁包头 7EW
+      把接收数量5，从机地址32r，私有数据模式，带stop 放入CR的预备变量aControlBuffer[0]中  (注意：不论发送还是接收，只有一条control指令，固数组标号是0)
+      把接收长度放hi3c->RxXferCount里  （已验证，这里没有把要接收的数据放aRxBuffer里）
+   HAL_I3C_AddDescToFrame(  &hi3c1, NULL, &aPrivateDescriptor[1],  &aContextBuffers[1],  aContextBuffers[1].CtrlBuf.Size = 1, 9000 0000 );     
+
+
+  //功能：指定以后中断里的接收传输函数为 I3C_ReceiveWordTreatment
+          使能帧完成中断，ccc-fifo 没满中断，rx-fifo没满中断，出错中断
+          CFGR.30=1，使能I3C传输 （含发送和接收）
+   HAL_I3C_Ctrl_Receive_IT(&hi3c1, &aContextBuffers[1])
+
+
+--------------
+
+功能：CFGR.2=0,使能可仲裁包头 7EW
+      把接收数量5，从机地址32r，私有数据模式，带stop 放入CR的预备变量aControlBuffer[0]中  (注意：不论发送还是接收，只有一条control指令，固数组标号是0)
+      把接收长度放hi3c->RxXferCount里 
+
+数据流：hi3c->pPrivateDes = aPrivateDescriptor[1] 
+数据流：hi3c->pXferData = aContextBuffers[1] 
+
+数据流：hi3c->pXferData->CtrlBuf.pBuffer[0] = aContextBuffers[1].CtrlBuf.pBuffer = aControlBuffer[0] = 接收数量5 + 从机地址32r + 私有数据模式 + stop
+
+参数：hi3c1,  NULL,  &aPrivateDescriptor[1],   &aContextBuffers[1],   aContextBuffers[1].CtrlBuf.Size = 1,  9000 0000 (表示stop + 私有数据模式 + 使能7E)
+HAL_I3C_AddDescToFrame(  *hi3c,   *pCCCDesc,  *pPrivateDesc,  *pXferData,   nbFrame,   option)
+ 
+   HAL_I3C_StateTypeDef     handle_state;
+   HAL_StatusTypeDef    status = HAL_OK;
+
+      handle_state = hi3c->State;   //？
+
+      hi3c->ErrorCode       = HAL_I3C_ERROR_NONE;
+      hi3c->pCCCDesc         = pCCCDesc;             // null
+      hi3c->pPrivateDesc   = pPrivateDesc;           // aPrivateDescriptor[1]    //私有数据结构体，分拆成下面的部分control数据和私有数据数组
+      hi3c->pXferData       = pXferData;             // aContextBuffers[1]   //control数据和要接收的私有数据数组
+      hi3c->RxXferCount    = 0;
+      hi3c->TxXferCount    = 0;
+
+
+      //下面5句可以忽略(因私有数据不满足下面的条件)
+      if ((( option & f<<27 ) == (4+2) << 27 ) || (( option & f<<27 ) == (2+1) << 27 ))  //no  (因私有数据是 2<<27 )
+            status = HAL_ERROR;        
+      else  //yes    
+         if ((pPrivateDesc == NULL) || (pXferData == NULL) || (nbFrame <= 0))  //no
+            status = HAL_ERROR;
+
+      if (status == HAL_OK)   //yes
+
+         if ( (handle_state == HAL_I3C_STATE_READY) || (handle_state == HAL_I3C_STATE_LISTEN) )   //yes      
+
+            //使能可仲裁包头 7EW
+              把接收数量5，从机地址32r，私有数据模式，带stop 放入CR的预备变量aControlBuffer[0]中
+            //I3C_ControlBuffer_PriorPreparation(hi3c, nbFrame, option);
+                CFGR.2=0;                                                         //使能可仲裁包头 7EW
+                hi3c->ControlXferCount = 1;
+                aControlBuffer[0] = 5<<0 | 1<<16 | 32H << 17 | 2<<27 | 1<<31 );   //CR，把接收数量5，从机地址32r，私有数据模式，带stop 放入CR的预备变量aControlBuffer中
+           
+            //把接收长度放hi3c->RxXferCount里 
+            I3C_Xfer_PriorPreparation(hi3c, nbFrame, option);          
+     
+         else       
+            status = HAL_BUSY;
+     
+
+--------------
+
+功能： 使能可仲裁包头 7EW
+       把接收数量5，从机地址32r，私有数据模式，带stop 放入CR的预备变量aControlBuffer[0]中
+
+数据流：hi3c->pXferData->CtrlBuf.pBuffer[0] = aContextBuffers[1].CtrlBuf.pBuffer = aControlBuffer[0] = 接收数量5 + 从机地址32r + 私有数据模式 + stop
+
+参数：hi3c1,   1,   9000 0000 
+I3C_ControlBuffer_PriorPreparation( *hi3c,  counter,  option )
+ 
+   HAL_StatusTypeDef status = HAL_OK;
+   u32 nb_define_bytes;
+   u32 stop_condition;
+   u32 nb_data_bytes;
+   u32 index;
+
+   if (hi3c->pXferData->CtrlBuf.pBuffer == NULL)  //no     //aContextBuffers.CtrlBuf.pBuffer = aControlBuffer   
+      ......
+
+   else
+   
+      nb_define_bytes = (option & I3C_DEFINE_BYTE_MASK);     //0
+
+      stop_condition   = (option & I3C_RESTART_STOP_MASK);   //1<<31
+
+      //CFGR.2=0，使能可仲裁包头 7EW                  //-easy
+      if ((option &  04 ) == 04 )  //no   //待理解   （或指不是传统I2C--待验证）
+         LL_I3C_DisableArbitrationHeader(hi3c->Instance);
+      
+      else  //yes      
+         LL_I3C_EnableArbitrationHeader(I3C1);    //使能可仲裁包头 7EW
+            CFGR.2=0;
+      
+
+      //设置CR值     //-easy
+      if ((option & I3C_OPERATION_TYPE_MASK) == LL_I3C_CONTROLLER_MTYPE_CCC)   //no   问6<<27, 不是Broadcast CCC         
+         ......      
+
+      else if ((option & I3C_OPERATION_TYPE_MASK) == LL_I3C_CONTROLLER_MTYPE_DIRECT)  //no  问 3<<27, 不是Direct CCC
+        ......
+      
+      else                                                                           //yes   2<<27, 是Private      
+
+         if (hi3c->pXferData->CtrlBuf.Size <  counter)        //no     //aContextBuffers.CtrlBuf.Size = 1   （same）
+            status = HAL_ERROR;
+         
+         else  //yes
+                     
+            hi3c->ControlXferCount = counter;  //1
+
+            index=0；
+
+
+            if (hi3c->pPrivateDesc[0].Direction == HAL_I3C_DIRECTION_READ)  //no            
+               nb_data_bytes = hi3c->pPrivateDesc[0].RxBuf.Size;
+            
+            else  //yes            
+               nb_data_bytes = hi3c->pPrivateDesc[0].TxBuf.Size;  //5
+            
+
+            //hi3c->pXferData->CtrlBuf.pBuffer[0] =  5 | pPrivateDesc[0].Direction |   pPrivateDesc[0].TargetAddr << I3C_CR_ADD_Pos  | 2<<27 | 1<<31 );
+               aControlBuffer[0] = 5<<0 | 1<<16 | 32H << 17 | 2<<27 | 1<<31 );   //CR，把接收数量5，从机地址32w，私有数据模式，带stop 放入CR的预备变量aControlBuffer[0]中
+         
+
+-------------
+
+功能：把接收长度放hi3c->RxXferCount里  （已验证）
+
+数据流：hi3c->TxXferCount = global_rx_size = hi3.pPrivateDesc[1].RxBuf.Size = aContextBuffers[1].RxBuf.Size = 5
+
+参数：hi3c1,   1,   9000 0000   (后面两个参数，只做判断用，可理解为无实际用处)
+I3C_Xfer_PriorPreparation(  *hi3c, counter,  option )
+
+   HAL_StatusTypeDef status   = HAL_OK;
+   u32 current_tx_index = 0;
+   u32 global_tx_size    = 0;
+   u32 global_rx_size    = 0;
+   u32 nb_tx_frame       = 0;
+   u32 direction;
+
+   descr_index=0；//for循环的第一次，只循环了1次
+
+      if ((option & I3C_OPERATION_TYPE_MASK) == LL_I3C_CONTROLLER_MTYPE_DIRECT)  /no  问 3<<27, 不是Direct CCC 
+           ......
+
+      else if ((option & I3C_OPERATION_TYPE_MASK) == LL_I3C_CONTROLLER_MTYPE_CCC)   //no   问6<<27, 不是Broadcast CCC    
+             ......
+
+      else                                                                          //yes   问2<<27, 是Private       
+         //direction = hi3c->pPrivateDesc[descr_index].Direction;   
+            direction = aPrivateDescriptor[0].Direction;          //0<<16
+
+         if (direction == HAL_I3C_DIRECTION_WRITE)  //no, write
+         
+            ......
+                     
+         else    //yes, read         
+            global_rx_size += hi3c->pPrivateDesc[0].RxBuf.Size;   //5
+
+
+   //先忽略下面4句
+   if (status == HAL_OK)  //yes
+      if (LL_I3C_GetTxFIFOThreshold(I3C1) == LL_I3C_TXFIFO_THRESHOLD_4_4)  //yes     //问CFGR.14=1   
+         if (nb_tx_frame > 1)  //no  //nb_tx_frame=1
+            status = HAL_ERROR;               
+   
+   //把发送长度放hi3c->TxXferCount里
+   if (status == HAL_OK)   //yes
+
+      //if (global_rx_size > hi3c->pXferData->RxBuf.Size)  //no
+        if ( 0 > 5 )  //no  
+            status = HAL_ERROR;
+      
+      else  //yes      
+         hi3c->RxXferCount = global_rx_size = 5;         
+
+       hi3c->TxXferCount = global_tx_size=0;  //在接收时，应可忽略这句
+
+
+--------------
+
+功能：指定以后中断里的接收传输函数为 I3C_ReceiveWordTreatment
+          使能帧完成中断，ccc-fifo 没满中断，rx-fifo没满中断，出错中断
+          CFGR.30=1，使能I3C传输 （含发送和接收）
+
+数据流：I3C_ReceiveWordTreatment --> hi3c.ptrRxFunc
+数据流：I3C_Ctrl_Rx_ISR           --> hi3c.XferISR
+参数： hi3c1, &aContextBuffers[1]
+HAL_I3C_Ctrl_Receive_IT(    *hi3c,        *pXferData)
+ 
+    HAL_I3C_StateTypeDef handle_state;
+    HAL_StatusTypeDef status = HAL_OK;
+
+        handle_state = hi3c->State;
+
+            hi3c->ErrorCode         = HAL_I3C_ERROR_NONE;
+            hi3c->State                 = HAL_I3C_STATE_BUSY_RX;
+            hi3c->pXferData         = pXferData;
+            hi3c->RxXferCount     = hi3c->pXferData->RxBuf.Size;
+            hi3c->XferISR             = I3C_Ctrl_Rx_ISR;
+
+            if (LL_I3C_GetRxFIFOThreshold(hi3c->Instance) == LL_I3C_RXFIFO_THRESHOLD_1_4)    //no ，不是一次只可发1个字节
+                hi3c->ptrRxFunc = &I3C_ReceiveByteTreatment;          
+  
+            else                                                                                                                                           //yes，是一次可发4个字节
+                 //指定接收传输函数
+                hi3c->ptrRxFunc = &I3C_ReceiveWordTreatment;
+            
+
+            //I3C_Enable_IRQ(hi3c, I3C_XFER_CONTROLLER_RX_IT);
+           //     __HAL_I3C_ENABLE_IT(  hi3c,   HAL_I3C_IT_FCIE |   HAL_I3C_IT_CFNFIE |   HAL_I3C_IT_RXFNEIE |   HAL_I3C_IT_ERRIE );
+                        IER  = 1<<9 | 1<<2 | 1<<5 | 1<<11;  //使能帧完成中断，ccc-fifo 没满中断，rx-fifo没满中断，出错中断 （这4个都有用，前3个一定会用到）
+
+            LL_I3C_RequestTransfer(hi3c->Instance);  // 使能I3C传输（含发送和接收）
+                CFGR.30=1;
+
+
+
+
+
+
+================================I3C rx 中断处理=========================================
+
+
+flow：
+
+   I3C1_EV_IRQHandler -- HAL_I3C_EV_IRQHandler   -- (hi3c->XferISR) -- I3C_Ctrl_Rx_ISR    #-- I3C_ControlDataTreatment -- I3C_I3C_ReceiveWordTreatment 
+   --  I3C_StateUpdate -- HAL_I3C_CtrlTxCpltCallback -- BSP_LED_Toggle
+
+
+{ 数据流：hi3c->pPrivateDesc   =  aPrivateDescriptor }
+{ 数据流：hi3c->pXferData      =  aContextBuffers    }   
+
+数据流：aControlBuffer[0] --> CR
+数据流：RDWR --> aRxBuffer
+数据流：aRxBuffer += 4;
+数据流：hi3c->RxXferCount -= 4;
+
+
+
+
+---------------------------------------
+
+功能：I3C硬件中断入口
+
+I3C1_EV_IRQHandler( )
+ 
+  HAL_I3C_EV_IRQHandler(&hi3c1);
+
+
+----------
+
+功能：中断处理函数
+
+HAL_I3C_EV_IRQHandler(  *hi3c) 
+
+  it_flags   = READ_REG(I3C1->EVR); 
+
+  it_sources = READ_REG(I3C1->IER);
+
+ 
+  if (hi3c->XferISR != NULL)
+ 
+    //响应I3C的rx中断
+      发送ccc指令(7EW)
+      接收从机的私有数据到aRxBuffer 
+      发送结束后，关闭中断，翻转小灯
+    //hi3c->XferISR(hi3c, it_flags, it_sources);
+        I3C_Ctrl_Rx_ISR( hi3c, EVR, IER );
+
+
+-------
+
+
+功能：响应I3C的tx中断
+      发送ccc指令(7EW)
+      接收从机的私有数据到aRxBuffer 
+      发送结束后，关闭中断，翻转小灯
+
+数据流：aControlBuffer[0] --> CR
+数据流：RDWR --> aRxBuffer
+数据流：aRxBuffer += 4;
+数据流：hi3c->RxXferCount -= 4;
+
+参数：hi3c, EVR, IER
+I3C_Ctrl_Rx_ISR(  *hi3c,    itFlags,   itSources )
+
+
+    if (hi3c->State == HAL_I3C_STATE_BUSY_RX)     //yes
+ 
+      if ( EVR.CFNFF==1 && IER.CFNFIE==1 )  //yes , EVR.2=1, IER.2=1 , 有cfifo空车中断
+      
+         if (hi3c->ControlXferCount > 0 )  //yes ， 1
+
+            //发送ccc指令，设置私有数据模式，从机地址32w： 5<<0 | 0<<16 | 32H << 17 | 2<<27 | 1<<31 ); 
+            //I3C_ControlDataTreatment(hi3c);
+               CR = aControlBuffer[0];
+
+
+       //接收中断处理
+        if ( EVR.RXFNFF==1 && IER.RXFNFIE==1 )   //no , EVR.5=1, IER.5=1 , 有rx-fifo有数据中断      
+        
+            if (hi3c->RxXferCount > 0)   //yes，    RxXferCount ？
+
+                //hi3c->ptrRxFunc(hi3c);
+                //  I3C_I3C_ReceiveWordTreatment(hi3c);    //接收从机的私有数据到aRxBuffer          
+                       (u32*)aRxBuffer  = RDWR;
+                        hi3c->RxXferCount -= 4;   
+
+
+      //发送中断处理
+      if ( EVR.TXFNFF==1 && IER.TXFNFIE==1 )   //no , EVR.4=1, IER.4=1 , 有tx-fifo没满中断         
+         (应忽略)    // 待验证 
+
+
+      //帧完成中断处理
+      if ( EVR.FCF==1 && IER.FCIE==1 )   //yes , EVR.9=1, IER.9=1 , 有帧完成中断或有出错中断
+      
+         //LL_I3C_ClearFlag_FC(hi3c->Instance);
+             CEVR.CFCF=1;  //CEVR.9=1, 清中断标志EVR.9
+
+            ？if (hi3c->ControlXferCount == 0)   //应为yes，待打log，看执行下面哪个分支
+
+                //I3C_Disable_IRQ(hi3c, I3C_XFER_CONTROLLER_RX_CCC_IT);
+                   IER  &= ~（1<<9 | 1<<2 | 1<<5 | 1<<11）;    //关闭帧完成中断，ccc-fifo 没满中断，rx-fifo没满中断，出错中断
+
+                //I3C_StateUpdate(hi3c);
+                   hi3c->State = HAL_I3C_STATE_READY; 
+                   hi3c->XferISR = NULL;
+
+                hi3c->ErrorCode = HAL_I3C_ERROR_NONE;
+
+                //HAL_I3C_CtrlRxCpltCallback(hi3c);     //翻转小灯
+                       BSP_LED_Toggle(LED2);
+            
+            ？else  //应为no
+            
+                hi3c->ErrorCode = HAL_I3C_ERROR_NONE;
+
+                //HAL_I3C_CtrlRxCpltCallback(hi3c);
+                     BSP_LED_Toggle(LED2);
+
+
+             //LL_I3C_RequestTransfer(I3C1);   // 使能I3C传输（含发送和接收）
+                CFGR.30=1; 
+
+            
+      
+---------
+
+功能：接收从机的私有数据到aRxBuffer 
+
+数据流：RDWR --> aRxBuffer
+数据流：aRxBuffer += 4;
+数据流：hi3c->RxXferCount -= 4;
+I3C_ReceiveWordTreatment( *hi3c )
+
+   while (EVR.5 == 1 )    //有rx-fifo有数据中断  
+   
+      //(u32*)hi3c->pXferData->RxBuf.pBuffer = RDWR;
+          (u32*)aRxBuffer  = RDWR;
+
+      hi3c->pXferData->RxBuf.pBuffer += 4;
+           aRxBuffer += 4;
+
+
+      if (hi3c->RxXferCount > 4)
+         hi3c->RxXferCount -= 4;       
+      else
+         hi3c->RxXferCount = 0;
+
+
+
+
+
+
+
+
+
+

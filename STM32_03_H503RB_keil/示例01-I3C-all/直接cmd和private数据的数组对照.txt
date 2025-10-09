@@ -1,0 +1,33 @@
+
+
+
+--------LL------------
+
+I3C_CCCTypeDef aSET_CCCList[] =
+{
+
+    {TARGET1_DYN_ADDR,          Direct_SETMWL,          {aSETMWL_data,          2},             LL_I3C_DIRECTION_WRITE},
+
+};
+
+
+I3C_CCCTypeDef aGET_CCCList[] =
+{
+
+    {TARGET1_DYN_ADDR,          Direct_GETMWL,          {NULL,                  2},             LL_I3C_DIRECTION_READ},
+};
+
+
+--------HAL------------
+
+
+I3C_PrivateTypeDef aPrivateDescriptor[0] = \
+                                          {
+                                            {TARGET1_DYN_ADDR, {aTxBuffer, 5}, {NULL, 0}, HAL_I3C_DIRECTION_WRITE},                    
+                                           };
+
+I3C_PrivateTypeDef aPrivateDescriptor[1] = \
+                                          {
+                                            {TARGET1_DYN_ADDR, {NULL, 0}, {aRxBuffer, 5}, HAL_I3C_DIRECTION_READ}
+                                          };
+

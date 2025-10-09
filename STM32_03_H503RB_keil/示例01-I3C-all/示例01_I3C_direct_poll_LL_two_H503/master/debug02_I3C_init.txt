@@ -1,0 +1,146 @@
+
+疑问1： 如何配置i3c是主机，还是从机
+答：  CFGR.1=1, 设置为i3c主机
+
+================================I3C init=========================================
+
+
+
+------------------
+
+main
+
+
+   //设置i3c时钟，使能I3C时钟，使能GPIOB时钟
+      配置I3C引脚：高速，上拉，复合功能
+      设置发送和接收fifo门槛都为4个字节，使能I3C1
+   MX_I3C1_Init();
+
+
+
+-------------
+
+功能：设置i3c时钟，使能I3C时钟，使能GPIOB时钟
+      配置I3C引脚：高速，上拉，复合功能
+      设置发送和接收fifo门槛都为4个字节，使能I3C1
+MX_I3C1_Init( )
+
+   GPIO_InitStruct = {0};
+
+   //设置i3c时钟
+   //LL_RCC_SetI3CClockSource(LL_RCC_I3C1_CLKSOURCE_PCLK1);
+   //  LL_RCC_SetClockSource(LL_RCC_I3C1_CLKSOURCE_PCLK1);
+         pReg = &RCC->CCIPR1 + LL_CLKSOURCE_REG(PCLK1);
+         MODIFY_REG(*pReg, LL_CLKSOURCE_MASK(ClkSource), LL_CLKSOURCE_CONFIG(PCLK1));
+
+   //使能I3C时钟
+   LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_I3C1);
+
+   //使能GPIOB时钟
+   LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOB);
+
+
+   //配置I3C引脚：高速，上拉，复合功能
+   GPIO_InitStruct.Pin = LL_GPIO_PIN_6|LL_GPIO_PIN_7;
+   GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+   GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
+   GPIO_InitStruct.Pull = LL_GPIO_PULL_UP;
+   GPIO_InitStruct.Alternate = LL_GPIO_AF_3;
+   LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+
+   LL_I3C_SetMode(I3C1, LL_I3C_MODE_CONTROLLER);                         //CFGR.1=1, 设置为i3c主机
+
+   LL_I3C_SetDataHoldTime(I3C1, LL_I3C_SDA_HOLD_TIME_1_5);
+   LL_I3C_SetControllerActivityState(I3C1, LL_I3C_OWN_ACTIVITY_STATE_0);
+
+   //LL_I3C_ConfigClockWaveForm(I3C1, 0x00590909);
+      TIMINGR0 = 0x00590909;   //0059 -- 用于传统I2C(待理解) ，0909 -- 12.5M并且占空比50%
+
+   //LL_I3C_SetCtrlBusCharacteristic(I3C1, 0x103200f8);
+      TIMINGR1=0x103200f8;   //10 -- SDA保持时间(待理解)， 32 -- bus free(待理解)， 00 -- 用于给后面的数如f8加个翻倍系数，f8 -- 设置I3C的一些核心clk(待理解)
+
+   LL_I3C_DisableHJAck(I3C1);
+
+
+
+   //设置发送fifo门槛为1个字节，设置接收fifo门槛为1个字节
+   LL_I3C_SetRxFIFOThreshold(I3C1, LL_I3C_RXFIFO_THRESHOLD_1_4);
+   LL_I3C_SetTxFIFOThreshold(I3C1, LL_I3C_TXFIFO_THRESHOLD_1_4);
+   LL_I3C_DisableControlFIFO(I3C1);
+   LL_I3C_DisableStatusFIFO(I3C1);
+
+
+   //设置I3C1的初始值
+   LL_I3C_SetOwnDynamicAddress(I3C1, 0);
+   LL_I3C_EnableOwnDynAddress(I3C1);
+   LL_I3C_SetStallTime(I3C1, 0x00);
+   LL_I3C_DisableStallACK(I3C1);
+   LL_I3C_DisableStallParityCCC(I3C1);
+   LL_I3C_DisableStallParityData(I3C1);
+   LL_I3C_DisableStallTbit(I3C1);
+   LL_I3C_DisableHighKeeperSDA(I3C1);
+
+   //使能I3C1
+   LL_I3C_Enable(I3C1);
+
+
+
+
+
+
+
+===============================================参考=========================================
+
+
+
+//参数： GPIOB, &GPIO_InitStruct
+LL_GPIO_Init(  *GPIOx,  *GPIO_InitStruct)
+
+   uint32_t pinpos;
+   uint32_t currentpin;
+
+   pinpos = POSITION_VAL(GPIO_InitStruct->Pin);    //待理解
+
+   //依次设置I3C的两个引脚
+   while (((GPIO_InitStruct->Pin) >> pinpos) != 0 )
+
+      currentpin = (GPIO_InitStruct->Pin) & (1  << pinpos); 
+
+      if (currentpin != 0 )
+      
+         if ((GPIO_InitStruct->Mode == LL_GPIO_MODE_OUTPUT) || (GPIO_InitStruct->Mode == LL_GPIO_MODE_ALTERNATE))
+         
+            //设置引脚速度
+            LL_GPIO_SetPinSpeed(GPIOx, currentpin, GPIO_InitStruct->Speed);
+
+            //设置output类型  （待理解）
+            LL_GPIO_SetPinOutputType(GPIOx, GPIO_InitStruct->Pin, GPIO_InitStruct->OutputType);
+          
+
+         //设置上拉电阻
+         LL_GPIO_SetPinPull(GPIOx, currentpin, GPIO_InitStruct->Pull);
+
+         if (GPIO_InitStruct->Mode == LL_GPIO_MODE_ALTERNATE)
+          
+            //设置引脚的复合功能为AF3	
+            if (POSITION_VAL(currentpin) < 8)            
+               LL_GPIO_SetAFPin_0_7(GPIOx, currentpin, GPIO_InitStruct->Alternate);            
+            else             
+               LL_GPIO_SetAFPin_8_15(GPIOx, currentpin, GPIO_InitStruct->Alternate);
+
+       
+         //设置引脚模式为复合功能
+         LL_GPIO_SetPinMode(GPIOx, currentpin, GPIO_InitStruct->Mode);
+       
+      pinpos++;
+ 
+
+
+
+
+
+
+
+
+

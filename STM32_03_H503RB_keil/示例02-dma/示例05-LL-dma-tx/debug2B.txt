@@ -1,0 +1,57 @@
+  
+
+
+
+=======================================参考=======================================================
+
+
+
+ 
+
+
+
+
+  
+  huart1.Instance = USART1;
+
+  handle_GPDMA1_Channel0.Instance = GPDMA1_Channel0;      
+
+  
+
+
+//   handle_GPDMA1_Channel0.Instance = GPDMA1_Channel0;                     //通道0
+
+//   handle_GPDMA1_Channel0.Init.Request = GPDMA1_REQUEST_USART1_TX;        // CTR2.7-0=22，      外设连接 uart tx
+
+//   handle_GPDMA1_Channel0.Init.BlkHWRequest = DMA_BREQ_SINGLE_BURST;      // CTR2.11=0,         不需要硬件信号，来数据就搬运（而不是等一批数据）   //待理解
+
+//   handle_GPDMA1_Channel0.Init.Direction = DMA_MEMORY_TO_PERIPH;          // CTR2.10=1,         mem到外设
+
+//   handle_GPDMA1_Channel0.Init.SrcInc = DMA_SINC_INCREMENTED;             // CTR1.3=1,          源地址递增
+//   handle_GPDMA1_Channel0.Init.DestInc = DMA_DINC_FIXED;                  // CTR1.19=0,         目标地址递增目标地址固定
+//   handle_GPDMA1_Channel0.Init.SrcDataWidth = DMA_SRC_DATAWIDTH_BYTE;     // CTR1.1-0=00,       源数据是按字节传输
+//   handle_GPDMA1_Channel0.Init.DestDataWidth = DMA_DEST_DATAWIDTH_BYTE;   // CTR1.17-16=00,     目标数据是按字节传输
+
+//   handle_GPDMA1_Channel0.Init.Priority = DMA_LOW_PRIORITY_HIGH_WEIGHT;   // CCR.23-22=2,       设置快递员的优先级
+
+//   handle_GPDMA1_Channel0.Init.SrcBurstLength = 1;                        // CTR1.9-4=(1-1),    每次只搬运1个字节，不使用突发传输  //待理解
+//   handle_GPDMA1_Channel0.Init.DestBurstLength = 1;                       // CTR1.25-20=(1-1),  每次只搬运1个字节，不使用突发传输  //待理解
+
+//   handle_GPDMA1_Channel0.Init.TransferAllocatedPort = DMA_SRC_ALLOCATED_PORT0|DMA_DEST_ALLOCATED_PORT0;  // CTR1.14,30=0,0,  源数据和目标数据都使用端口0
+//   handle_GPDMA1_Channel0.Init.TransferEventMode = DMA_TCEM_BLOCK_TRANSFER;                               // CTR2.31-30=0,    传输完成后触发事件（比如通知CPU数据搬完了   (待理解)
+//   handle_GPDMA1_Channel0.Init.Mode = DMA_NORMAL;    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

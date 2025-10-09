@@ -1,0 +1,62 @@
+
+
+//----------- dma clk and irq init --------------------
+
+
+   __HAL_RCC_GPDMA1_CLK_ENABLE();               //使能dma1 时钟clock        
+
+   
+  //-----dma channel0 ---
+
+   HAL_NVIC_SetPriority(GPDMA1_Channel0_IRQn, 0, 0);        //设置dma1的优先级0 
+
+   HAL_NVIC_EnableIRQ(GPDMA1_Channel0_IRQn);                //使能dma1的通道0的irq中断 
+
+
+
+
+
+//----------- dma tx  param init --------------------
+
+
+  //---配置CCR--- (Control Register)
+
+  MODIFY_REG( GPDMA1_Channel0->CCR, DMA_CCR_PRIO | DMA_CCR_LAP | DMA_CCR_LSM, 2<<22);
+      //CCR.23-22,17,16 =2,0,0;   // Priority设置优先级2，链表端点0 ，完整执行模式 （待理解，链表相关，先忽略）
+
+  //---配置CTR1--- (Transfer Register)
+  //tmpreg = hdma->Init.DestInc | hdma->Init.DestDataWidth | hdma->Init.SrcInc | hdma->Init.SrcDataWidth;
+     GPDMA1_Channel0->CTR1 = 1<<19 | 0<<16 | 0<<3 | 0<<0;   // 目标地址递增 , 目标数据是按字节传输, 源地址固定, 源数据是按字节传输
+
+     GPDMA1_Channel0->CTR1 |=  0<<14 | 0<<30 |            //TransferAllocatedPort, 源数据和目标数据都使用端口0
+                               0<<4  |                    //DestBurstLength, 目标数据每次只搬运1个字节，不使用突发传输  //待理解
+                               0<<20 |                    //SrcBurstLength, 源数据每次只搬运1个字节，不使用突发传输  //待理解
+
+ 
+  //---配置CTR2--- (Transfer Register)
+  //tmpreg = hdma->Init.BlkHWRequest | hdma->Init.Request | hdma->Init.TransferEventMode;
+     CTR2 = 0<<11 | 21<<0 | 0<<30;    //不需要硬件信号，来数据就搬运（（而不是等一批数据）,外设连接 uart rx,传输完成后触发事件（比如通知CPU数据搬完了 (待理解)
+
+
+  CTR2 |= 0<<12;     //Mode, 按固定节奏搬完所有包裹（BNDT数量），不能提前结束 (待理解)
+
+
+  //---配置CBR1---
+  WRITE_REG(hdma->Instance->CBR1, 0U);
+     CBR1=0;                                //待理解，暂未用到，忽略跳过   
+
+  
+  //清0链表节点的地址，忽略跳过
+  WRITE_REG(hdma->Instance->CLLR, 0);
+     CLLR =0;  // 待理解  （关于链表节点的，等用到了再看）
+
+
+
+   HAL_DMA_ConfigChannelAttributes(&handle_GPDMA1_Channel0, DMA_CHANNEL_NPRIV);
+
+
+
+
+
+
+

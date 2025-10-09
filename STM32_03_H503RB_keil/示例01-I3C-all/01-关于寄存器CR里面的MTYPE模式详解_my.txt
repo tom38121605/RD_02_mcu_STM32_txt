@@ -1,0 +1,19 @@
+
+CR.30-27:  MTYPE
+
+MTYPE = 6:  CCC指令模式，不用管它是广播ccc指令还是直接ccc指令，而是要看在什么地方需要用到ccc指令，只要用到就设置6，一共有下面两个地方用到：   //alternate CR
+               。如在发送ENTDAA配置动态地址时， 要发送ENTDAA的广播类型的ccc指令
+               。如在GETMWL时，要先发送GETMWL的ccc指令
+            在读写私有数据时，不需要发送ccc指令，也就整个过程都不需要设置MTYPE=6
+            在读写传统I2C数据时，不需要发送ccc指令，也就整个过程都不需要设置MTYPE=6  （待验证）
+
+MTYPE = 3:  Direct message （直接ccc的第二部分）   // CR
+
+MTYPE = 2:  私有数据      // CR
+
+MTYPE = 4:  传统I2C  (待完善)
+
+
+
+
+

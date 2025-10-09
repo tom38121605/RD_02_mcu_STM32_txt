@@ -1,0 +1,458 @@
+
+  
+
+关于MYTYPE(CR.30-27)的详解：
+
+     6 -- 0110:   ccc指令，包括广播ccc指令，直接ccc指令  不在于它是广播ccc指令还是直接ccc指令，而是要看在什么地方需要用到ccc指令，只要用到就设置6 （ENTDAA,GETMWL）
+
+     3 -- 0011:   直接msg （直接ccc的第二部分） 
+                  。如CR.16=0,则为“直接ccc写”
+                  。如CR.16=1,则为“直接ccc读”
+
+     2 -- 0010:   私有数据， 
+                  。如CR.16=0,则为“私有数据写”
+                  。如CR.16=1,则为“私有数据读”
+
+     4 -- 0100:   传统I2C  (待完善)
+
+     1 -- 0001:   heard指令 （待理解）
+
+
+疑问1：EVR.2(CFNFF)标志置1，被读取后，会自动硬件清0吗
+答：   读取后不会自动清0，只有fifo满了之后才能自动清0
+
+疑问2：setmwl的txbuf[0]是高位字节吗
+答：   是的，如要设置MWL为0x0304，则先发送0x03（高位字节），再发送0x04（低位字节）
+
+
+
+
+
+================================I3C 动态分配地址=========================================
+
+
+步骤1： 发送 ENTDAA 广播指令
+        CR = 0<<0 | 7 << 16 | 6<<27 | 1<<31;   //把 发送数量0 + ENTDAA指令 + ccc模式 + stop 加入到 CR里
+
+步骤2： 等待 EVR.4(TXFNF) 标志置1 (txfifo not full标志)  //发送ENTDAA指令后，意味着就要接收从机的PID及发送动态地址给从机。当准备好时，就要把TXFNF置1
+         。取得CFGR.10 =0，得知是单字节读取 （单字节读RDR,四字节读RDWR）
+         。target_payload = RDR x 8遍;  //读取8个字节（6个PID加BCR和DCR），并保存到一个U64的变量target_payload中
+         。TDR = 0x32;                  //把从机7位地址0x32写入到TDR，发送给从机
+
+步骤3： 收到EVR.9的标志置1（帧完成标志），表示数据帧已正常完成 （遇到stop）
+         。LED_Toggle();               //翻转小灯
+
+
+flow：
+
+   main -- MX_I3C1_Init -- Handle_ENTDAA_Controller -- LL_I3C_ControllerHandleCCC -- I3C_DynamicAddressTreatment 
+
+
+数据流：把 发送数量0 + ENTDAA指令 + 广播ccc模式 + stop   --  寄存器CR
+数据流：RDR x8遍       --  aTargetDesc[0]->TARGET_BCR_DCR_PID     （TARGET_BCR_DCR_PID实际没有使用到）
+数据流：0x32           --  TDR   (从机地址)
+
+
+
+
+------------------
+
+main
+
+
+  MX_I3C1_Init();
+
+
+  //step01：广播发送ENTDAA指令给所有从机（为下一步step02动态地址分配），不发送其它任何数据，等所有从机回复完成后自动产生stop
+    step02：依次给从机分配动态地址
+  Handle_ENTDAA_Controller();
+
+
+
+----------
+
+功能：step01：广播发送ENTDAA指令给所有从机（为下一步step02动态地址分配），不发送其它任何数据，等所有从机回复完成后自动产生stop
+      step02：依次给从机分配动态地址
+
+数据流：把 发送数量0 + ENTDAA指令 + 广播ccc模式 + stop   -->  CR
+数据流：RDR x8遍       --  aTargetDesc[0]->TARGET_BCR_DCR_PID 
+数据流：0x32           --  TDR   (从机地址)
+Handle_ENTDAA_Controller( )
+
+  //step01：广播发送ENTDAA指令给所有从机（为下一步step02动态地址分配），不发送其它任何数据，完成后自动产生stop
+  //LL_I3C_ControllerHandleCCC(I3C1, Broadcast_ENTDAA, 0, LL_I3C_GENERATE_STOP);
+      CR = 0<<0 | 7 << 16 | 6<<27 | 1<<31;  //发送数量0 + ENTDAA指令 + 广播ccc模式 + stop 
+
+  //step02：依次给从机分配动态地址
+  do 
+
+    //if (LL_I3C_IsActiveFlag_TXFNF(I3C1))
+      if ( EVR.4==1 )   //txfifo not full标志
+   
+      //把收到的target_payload的值，赋给aTargetDesc[0].TARGET_BCR_DCR_PID
+        把动态地址0x32，发送给第一个从机target1 (其它从机依次发送)
+      //I3C_DynamicAddressTreatment();
+         aTargetDesc[0]->TARGET_BCR_DCR_PID = RDR x 8遍;
+         TDR = 0x32;
+
+ 
+  while ( EVR.9==0 && EVR.11==0 );   //当ENTDAA指令尚未完成并且也没有err （未遇到stop和err，就继续执行上面）
+
+
+  //清除帧完成中断标志
+  if (  EVR.9==1)     //yes
+    EVR.9=0;
+    LED_Toggle();
+    
+
+  //清err中断标志
+  if ( EVR.11==1)   //no
+    EVR.11=0;
+    Error_Handler();
+
+ 
+---------
+
+功能：广播发送ENTDAA动态地址分配指令给所有从机，不发送其它任何数据，完成后自动产生stop
+      CR.23-16=7为ENTDDA广播指令 ,CR.15-0=0无数据发送,CR.31=1以stop结尾,CR.27=6广播写ccc指令模式
+
+参数：I3C1, 7, 0, 1<<31
+LL_I3C_ControllerHandleCCC(  *I3Cx,   CCCValue,  AddByteSize,  EndMode)
+ 
+  WRITE_REG( I3Cx->CR, ( ( 7 << 16 ) | 0 | 1<<31 | 6<<27 )  
+
+            & (I3C_CR_CCC | I3C_CR_DCNT  | I3C_CR_MEND| I3C_CR_MTYPE ) );  //CR.23-16=7 ENTDDA指令, CR.15-0=0无数据 , CR.31=1 自动加stop, CR.27=6 广播写ccc指令模式 
+ 
+
+------
+
+功能：把收到的target_payload的值，赋给aTargetDesc[0].TARGET_BCR_DCR_PID
+      把动态地址0x32，发送给第一个从机target1 (其它从机依次发送)
+
+I3C_DynamicAddressTreatment( )
+ 
+  if ( CFGR.10==0 )   //rx fifo的门槛值是4个字节
+
+      for ( i = 0 ; i < 8 ; i++) 
+           target_payload +=  RDR.7-0 << (i * 8 ) ;
+ 
+  else
+     for ( i = 0 ; i < 2 ; i++)        
+           target_payload += RDWR.31-0 << (i * 32 ) ; 
+
+  
+  //把收到的target_payload的值，赋给aTargetDesc[0].TARGET_BCR_DCR_PID
+  aTargetDesc[0]->TARGET_BCR_DCR_PID = target_payload;
+
+  //把动态地址0x32，发送给第一个从机target1
+  //LL_I3C_TransmitData8(I3C1, aTargetDesc[uwTargetCount++]->DYNAMIC_ADDR);  //first, 0x32
+      TDR = 0x32;
+ 
+
+
+================================I3C 发送直接CCC指令======读出/写入==================================
+
+
+--- 使用直接ccc读出数据过程：---
+
+步骤0： 准备指令和数据（getmwl只有指令）：把 aGET_CCCList 逐个加入 uwCCCMessage （以只发送一条GETMWL指令为例，固带stop）
+        uwCCCMessage[0] = 0<<0 | 8B << 16 | (4+2)<<27 | 0<<31            //把 发送数量0 + ccc指令8B + CCC指令模式 + restart 加入到 uwCCCMessage[0]里   //CR alternate 
+        uwCCCMessage[1] = 2<<0 | 32H << 17 | 1<<16 | (2+1)<<27 | 0<<31;  //把 接收数量2 + 从机地址32r + 直接msg模式 + stop 加入到 uwCCCMessage[1]里 ）  //CR
+
+步骤1： CFGR.30(TSFSET)置1，请求传输ccc指令到从机 （发出这个指令后，需等待，直到EVR.2=1后，才能发送ccc指令）
+
+步骤2： 等待EVR.2(CFNFF)标志置1 ,发送get ccc指令前半段即第一条uwCCCMessage[0]
+        CR = uwCCCMessage[0]  
+
+步骤3： 等待EVR.2(CFNFF)标志置1 ,发送get ccc指令后半段即第二条uwCCCMessage[1]
+        CR = uwCCCMessage[1]  
+
+步骤4： 等待EVR.5(RXFNEF)置1， 接收从机传回的关联数据  
+        aRxBuffer[] = RDR
+        循环，直到所有设定长度的2个aRxBuffer数据接收完毕
+
+步骤5： 遇到stop时EVR.9(FCF)置1数据帧完成  
+
+
+
+--- 使用直接ccc写入数据过程：---
+
+步骤0：准备指令和数据：把 aSET_CCCList 逐个加入 uwCCCMessage2 （以只发送一条SETMWL指令为例，固带stop），把 aSET_CCCList的buf 依次加入 aTxBuffer
+       uwCCCMessage2[0] =  0<<0 | 89 << 16 | (4+2)<<27 | 0<<31            //把 发送数量0 + ccc指令89 + CCC指令模式 + restart 加入到 uwCCCMessage2[0]里   //CR alternate 
+       uwCCCMessage2[1] =  2<<0 | 32H << 17 | 0<<16 | (2+1)<<27 | 0<<31;  //把 接收数量2 + 从机地址32w + 直接msg模式 + stop 加入到 uwCCCMessage2[1]里 ）  //CR
+
+       aTxBuffer[0] = 0;  //aSETMWL_data[0]
+       aTxBuffer[1] = 4;  //aSETMWL_data[1]
+       ubNbTxDataToTransfer=2;
+
+步骤1： CFGR.30(TSFSET)置1，请求传输ccc指令到从机（发出这个指令后，需等待，直到EVR.2=1后，才能发送ccc指令）
+ 
+步骤2： 等待EVR.2(CFNFF)标志置1 ,发送set ccc指令前半段即第一条uwCCCMessage2[0]
+        CR = uwCCCMessage2[0]  
+
+步骤3： 等待EVR.2(CFNFF)标志置1 ,发送set ccc指令后半段即第二条uwCCCMessage2[1]
+        CR = uwCCCMessage2[1]  
+
+步骤4： 等待EVR.4(TXFNFF)置1，发送设置从机相关数据  
+        TDR = aTxBuffer
+        循环，直到所有设定长度的2个aTxBuffer数据发送完毕
+
+步骤5： 循环，直到所有的set ccc指令发送完毕，遇到stop时EVR.9(FCF)置1数据帧完成 
+
+
+
+
+
+疑问1： uwCCCMessage为什么回自动分两次发送 ，第1次发get ccc指令，第2次发set ccc 指令
+答： 因为有两个stop，前面六条get ccc指令末尾带一个stop，后面两条set ccc末尾带一个stop，数据帧完成后会触发EVR.9(FCF)置1。do循环看到该标志后会中止发送后面的uwCCCMessage指令。
+
+疑问2： 发送12条get ccc指令 ， 返回 14个0x00 字节回来
+答： 已解决，数组标号++后，需减1再打log
+
+
+flow：
+
+   main -- Prepare_GET_CCC_Transfer -- Prepare_SET_CCC_Transfer -- Handle_CCC_Controller -- DisplayCCCValue -- Handle_CCC_Controller 
+
+
+数据流：aGET_CCCList                                                   -- uwCCCMessage
+数据流：数量aGET_CCCList.size + 从机地址32R + 直接ccc模式 + sr/stop    -- uwCCCMessage
+
+
+数据流：aSET_CCCList                                                    -- uwCCCMessage
+数据流：数量aSET_CCCList.size + 从机地址32W + 直接ccc模式 + sr/stop     -- uwCCCMessage
+数据流：aSET_CCCList 的buf                                              -- aTxBuffer
+
+
+数据流：uwCCCMessage --> CR
+数据流：RDR --> aRxBuffer
+数据流：aTxBuffer --> TDR
+
+
+---------------------------------------------------
+
+main
+
+   //根据aGET_CCCList数组，把get的ccc指令，放入到uwCCCMessage数组
+     如ccc指令为:无数据，GETMWL，mtype为6即广播或直接写ccc指令，restart结尾 (数据为0，或表示后面带0x32的从地址只发送ccc指令)
+     2个数据，从机地址为32H，mtype为3即direct message ，restart结尾 （最后一条是stop结尾）
+   Prepare_GET_CCC_Transfer();
+
+
+   //根据aSET_CCCList数组，把set的ccc指令，放入到uwCCCMessage数组
+     如ccc指令为：无数据，GETMWL指令，mtype为6即广播或直接写ccc指令，restart结尾
+     2个byte数据，从机地址为32H，mtype为3即direct message ，restart结尾（最后一条是stop结尾）
+   Prepare_SET_CCC_Transfer();
+
+
+   //CFGR.30(TSFSET)置1，请求传输ccc指令到从机（第一次调用）
+      等待EVR.2(CFNFF)标志置1，CR = uwCCCMessage发送get ccc指令(RW=1) 
+      等待EVR.5(RXFNEF)置1，aRxBuffer = RDR, 接收从机传回的关联数据 
+      循环，直到所有的get ccc指令发送完毕，遇到stop时EVR.9(FCF)置1数据帧完成
+
+
+   Handle_CCC_Controller();
+
+
+   DisplayCCCValue(aGET_CCCList, &aCommandCode[0], &aRxBuffer[0], COUNTOF(aGET_CCCList));
+
+
+   //CFGR.30(TSFSET)置1，请求传输ccc指令到从机（第二次调用）
+      等待EVR.2(CFNFF)标志置1，CR = uwCCCMessage发送set ccc指令(RW=0) 
+      等待EVR.4(TXFNFF)置1，TDR = aTxBuffer,发送设置从机相关数据            //只有CR.16=0(RNW)时，才需通过TDR发送数据给从机 
+      循环，直到所有的set ccc指令发送完毕，遇到stop时EVR.9(FCF)置1数据帧完成
+   Handle_CCC_Controller();
+
+
+
+---------
+
+功能： 根据aGET_CCCList数组，把get的ccc指令，放入到uwCCCMessage数组  (数据为0，或表示后面带0x32的从地址只发送ccc指令)
+       如ccc指令为:无数据，GETMWL，mtype为6即广播或直接写ccc指令，restart结尾 (数据为0，或表示后面带0x32的从地址只发送ccc指令)
+       2个数据，从机地址为32H，mtype为3即direct message ，restart结尾 （最后一条是stop结尾）
+
+数据流：aGET_CCCList                                                   -- uwCCCMessage
+数据流：数量aGET_CCCList.size + 从机地址32R + 直接ccc模式 + sr/stop    -- uwCCCMessage
+Prepare_GET_CCC_Transfer( )
+
+
+    ControlMask = ( 7f<<17 | ffff<<0 | 1<<16 | f<27 | 1<<31);  //CR  //如27位的MTYPE=6,固16位跟17位的8位应合并成ff（alternate）
+
+
+    for(i = 0; i < COUNTOF(aGET_CCCList); i++)   //6    
+
+        //如ccc指令为:无数据，GETMWL，mtype为6即广播或直接写ccc指令，restart结尾 (数据为0，或表示后面带0x32的从地址只发送ccc指令)
+        //MODIFY_REG( uwCCCMessage[ubFrameIdx], ControlMask, ((aGET_CCCList[i].CCC << I3C_CR_RNW_Pos) | 0 | LL_I3C_CONTROLLER_MTYPE_CCC | LL_I3C_GENERATE_RESTART)); 
+        //  uwCCCMessage[0] = ((aGET_CCCList[i].CCC << I3C_CR_RNW_Pos) | 0 | LL_I3C_CONTROLLER_MTYPE_CCC | LL_I3C_GENERATE_RESTART))  // ubFrameIdx=0
+        //    uwCCCMessage[0] =  (aGET_CCCList[0].CCC << 16) | 0<<0 | (4+2)<<27 | 0<<31) 
+                 uwCCCMessage[0] = 0<<0 | 8B<< 16 | (4+2)<<27 | 0<<31 //无数据，GETMWL，mtype为6即广播或直接写ccc指令，restart结尾  //CR alternate 
+
+
+        ubFrameIdx++;    // ubFrameIdx=1
+
+        //如果是最后一条ccc指令，则自动产生stop
+        if (i == COUNTOF(aGET_CCCList) - 1))         // i==5         
+            uwExitCondition = LL_I3C_GENERATE_STOP;  // 1<<31
+         
+
+        //2个数据，从机地址为32H，mtype为3即direct message ，restart结尾 (数据为0，或表示后面带0x32的从地址只发送ccc指令)
+        //MODIFY_REG(uwCCCMessage[ ubFrameIdx], ControlMask, ((aGET_CCCList[i].TargetAddr << I3C_CR_ADD_Pos) | aGET_CCCList[i].CCCBuf.Size | aGET_CCCList[i].Direction |  
+                                 LL_I3C_CONTROLLER_MTYPE_DIRECT |  uwExitCondition));
+        // uwCCCMessage[1] = aGET_CCCList[i].TargetAddr << I3C_CR_ADD_Pos | aGET_CCCList[i].CCCBuf.Size | aGET_CCCList[i].Direction | LL_I3C_CONTROLLER_MTYPE_DIRECT | uwExitCondition;
+           uwCCCMessage[1] = 2<<0 | 32H << 17 | 1<<16 | (2+1)<<27 | 1<<31;  //2个数据，从机地址为32H，mtype为3即direct message ，restart结尾（最后一条是stop结尾）  //CR
+
+        uwExitCondition = LL_I3C_GENERATE_RESTART;
+ 
+        ubFrameIdx++;      // ubFrameIdx=2
+ 
+
+
+-----------
+
+功能： 根据aSET_CCCList数组，把set的ccc指令，放入到uwCCCMessage数组
+       如ccc指令为：无数据，GETMWL指令，mtype为6即广播或直接写ccc指令，restart结尾
+       2个byte数据，从机地址为32H，mtype为3即direct message ，restart结尾（最后一条是stop结尾）
+
+数据流：aSET_CCCList                                                    -- uwCCCMessage
+数据流：数量aSET_CCCList.size + 从机地址32W + 直接ccc模式 + sr/stop     -- uwCCCMessage
+数据流：aSET_CCCList 的buf                                              -- aTxBuffer
+
+Prepare_SET_CCC_Transfer( )
+
+   ControlMask = ( 7f<<17 | ffff<<0 | 1<<16 | f<27 | 1<<31);  //CR  //如27位的MTYPE=6,固16位跟17位的8位应合并成ff（alternate）
+
+
+   for(i = 0; i < COUNTOF(aSET_CCCList); i++)    
+ 
+      //如ccc指令为：无数据，GETMWL指令，mtype为6即广播或直接写ccc指令，restart结尾
+      //MODIFY_REG(uwCCCMessage[ubFrameIdx], ControlMask, ((aSET_CCCList[i].CCC << I3C_CR_RNW_Pos)  | 0  | LL_I3C_CONTROLLER_MTYPE_CCC | LL_I3C_GENERATE_RESTART));
+      //  uwCCCMessage[12] = aSET_CCCList[i].CCC << I3C_CR_RNW_Pos | 0 | LL_I3C_CONTROLLER_MTYPE_CCC | LL_I3C_GENERATE_RESTART  // ubFrameIdx=12
+            uwCCCMessage[12] =   0<<0 | 89 << 16 |(4+2)<<27 | 0<<31 //无数据，GETMWL指令，mtype为6即广播或直接写ccc指令，restart结尾  //CR alternate 
+ 
+      ubFrameIdx++;     // ubFrameIdx=13
+ 
+      if (i == (COUNTOF(aSET_CCCList) - 1))        //i==1       
+         uwExitCondition = LL_I3C_GENERATE_STOP;   //1<<31
+       
+
+      //2个byte数据，从机地址为32H，mtype为3即direct message ，restart结尾
+      //MODIFY_REG(uwCCCMessage[ubFrameIdx], ControlMask, ((aSET_CCCList[i].TargetAddr << I3C_CR_ADD_Pos) | aSET_CCCList[i].CCCBuf.Size | 
+                               aSET_CCCList[i].Direction  |LL_I3C_CONTROLLER_MTYPE_DIRECT  |uwExitCondition));
+      // uwCCCMessage[13] = aSET_CCCList[i].TargetAddr << I3C_CR_ADD_Pos | aSET_CCCList[i].CCCBuf.Size | aSET_CCCList[i].Direction | LL_I3C_CONTROLLER_MTYPE_DIRECT |uwExitCondition;
+         uwCCCMessage[13] = 2<<0 | 32H << 17 | 0<<16 | (2+1)<<27 | 1<<31;  //2个byte数据，从机地址为32H，mtype为3即direct message ，restart结尾 （最后一条是stop结尾） //CR
+
+
+      for ( size = 0; size < 2; size++)  //每条set ccc指令都带两个数据，一共两条指令有4个数据
+       
+         //aTxBuffer[ubNbTxDataToTransfer++] = aSET_CCCList[i].CCCBuf.pBuffer[size];
+            aTxBuffer[0] = 0;
+            aTxBuffer[1] = 4;      
+ 
+      uwExitCondition = LL_I3C_GENERATE_RESTART;    //0<<31
+  
+      ubFrameIdx++;     // ubFrameIdx=14
+
+
+---------
+
+功能：CFGR.30(TSFSET)置1，请求传输ccc指令到从机（第一次调用）
+      等待EVR.2(CFNFF)标志置1，CR = uwCCCMessage发送get ccc指令(RW=1) 
+      等待EVR.5(RXFNEF)置1，aRxBuffer = RDR, 接收从机传回的关联数据 
+      循环，直到所有的get ccc指令发送完毕，遇到stop时EVR.9(FCF)置1数据帧完成
+
+      CFGR.30(TSFSET)置1，请求传输ccc指令到从机（第二次调用）
+      等待EVR.2(CFNFF)标志置1，CR = uwCCCMessage发送set ccc指令(RW=0) 
+      等待EVR.4(TXFNFF)置1，TDR = aTxBuffer,发送设置从机相关数据            //只有CR.16=0(RNW)时，才需通过TDR发送数据给从机 
+      循环，直到所有的set ccc指令发送完毕，遇到stop时EVR.9(FCF)置1数据帧完成
+
+数据流：uwCCCMessage --> CR
+数据流：RDR --> aRxBuffer
+数据流：aTxBuffer --> TDR
+
+
+Handle_CCC_Controller( )
+ 
+   //FlushBuffer8(aRxBuffer, COUNTOF(aRxBuffer));   //16
+      aRxBuffer[16]={0};
+ 
+   ubNbRxData = 0;
+ 
+
+   //CFGR.30(TSFSET)置1，请求传输ccc指令到从机   （发出这个指令后，需等待，直到EVR.2=1后，才能发送ccc指令）
+   //LL_I3C_RequestTransfer(I3C1);
+     CFGR.30=1;
+
+   do
+
+      //等待EVR.2(CFNFF)标志置1，CR = uwCCCMessage并发送ccc指令
+      if (LL_I3C_IsActiveFlag_CFNF(I3C1))  // 问 EVR.2==1
+       
+         //WRITE_REG(I3C1->CR, uwCCCMessage[ubNbCCC++]);
+             CR = uwCCCMessage[ubNbCCC++];                  //发送ccc指令
+      
+
+      //接收CCC关联数据（如有）
+      if (LL_I3C_IsActiveFlag_RXFNE(I3C1))     //问 EVR.5==1(RXFNEF), rxfifo非空
+       
+         //aRxBuffer[ubNbRxData++] = LL_I3C_ReceiveData8(I3C1);
+            aRxBuffer[ubNbRxData++] = RDR & ff;
+      
+
+      //发送CCC相关数据（如有）
+      if ((ubNbTxDataToTransfer > 0) && (LL_I3C_IsActiveFlag_TXFNF(I3C1)))  //问EVR.4==1(TXFNFF)， txfifo未满
+       
+         //LL_I3C_TransmitData8(I3C1, aTxBuffer[ubNbTxData++]);
+            TDR = aTxBuffer[ubNbTxData++];
+
+         ubNbTxDataToTransfer--;
+
+   while ( EVR.9 & EVR.11 ) == 0);  //直到数据帧完成或出现err
+
+
+   //数据帧已完成
+   if (LL_I3C_IsActiveFlag_FC(I3C1))   //EVR.9==1
+    
+      LL_I3C_ClearFlag_FC(I3C1);    //EVR.9=0
+      LED_Toggle();
+   
+
+   //出现err
+   if (LL_I3C_IsActiveFlag_ERR(I3C1))   //EVR.11==1
+
+      LL_I3C_ClearFlag_ERR(I3C1);       //EVR.11=0
+      Error_Handler();
+ 
+
+
+------
+
+参数：aGET_CCCList,  aCommandCode, aRxBuffer , 6
+DisplayCCCValue(  *pGetCCCList, **pCCCCharList, *pCCCBuffer, nbCCC )
+
+   for (  j = 0; j < 6; j++)
+   
+      printf("%s: 0x", aCommandCode[j]);
+
+      for (uint8_t i = 0; i < (pGetCCCList[j].CCCBuf.Size); i++)      
+         
+         printf("%x", *aRxBuffer++);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

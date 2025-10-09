@@ -1,0 +1,90 @@
+
+测试顺序： （实测）
+
+1. 先给两块板子上电 （可用杜邦线连接连接两块板子的3.3V）
+2. reset主机
+3. reset从机
+4. 再测试
+
+
+测试顺序： （org）
+
+1. 重编译烧录master
+2. 重编译烧录slave
+3. -在调试模式下运行主机，然后在正常模式下运行从机。
+
+This sequence will prevent a false startup phase on Target side
+as there is no high level on the bus, if the Target is started before the Controller.
+
+
+
+------主机：-----
+
+第一步：
+   。第1次按下按钮
+   。I3C控制器通过Handle_ENTDAA_Controller（）启动动态地址分配。
+   。此过程允许控制器将动态地址与总线上连接的目标相关联。
+   。用户可以通过观察TARGET_BCR_DCR_PID字段中aTargetDesc的内容来调试有效载荷值。
+
+第二步： 
+   。等待从机那边反应
+   。第2次按下按钮
+   。然后从aGET_CCCList取得所有的CCC元素
+   。通过Handle_CCC_Controller（）向从机发送CCC指令
+   。从机接收指令并通过发送相关数据进行处理       （对应从机第二步）
+
+   。主机通过aRxBuffer接收的数据，并通过DisplayCCCValue（）通过终端I/O打印出来。
+   。keil进入debug的方法:  View --> Serial Viewer --> Debug (printf) Viewer
+
+
+第三步： 
+   。第3次按下按钮
+   。然后从aSET_CCCList取得所有的CCC元素
+   。通过Handle_CCC_Controller（）向从机发送CCC指令
+   。从机接收指令并通过发送相关数据进行处理       （也对应从机第二步）
+
+   //。主机通过aRxBuffer接收的数据，并通过DisplayCCCValue（）通过终端I/O打印出来。
+   //。keil进入debug的方法:  View --> Serial Viewer --> Debug (printf) Viewer
+
+
+5.5 -LED2快速翻转，等待用户按下按钮。
+5.5 -LED2在ENTDAA接收时翻转，每次命令代码处理完成时。
+5.5 -当命令代码过程中出现错误时，LED2会缓慢翻转。
+
+
+----- 从机：-----
+
+第一步：
+   。等待主机分配动态地址
+   。此阶段完全有硬件状态机来管理，因此在轮询模式下没有额外增加的代码来处理。
+
+第二步： 
+   。在主机发出ccc指令前，从机在空循环中等待
+   。然后收到主机发来的第一个ccc指令
+   。从机根据ccc指令，进行发送和接收数据
+
+
+第三步： 
+   。上面的数据，都由硬件状态机处理
+   。从机只在while中判断一下是否正确
+
+第四步： 
+   。硬件处理ccc指令和数据时，小灯会翻转
+   。出现错误时，小灯会缓慢翻转
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

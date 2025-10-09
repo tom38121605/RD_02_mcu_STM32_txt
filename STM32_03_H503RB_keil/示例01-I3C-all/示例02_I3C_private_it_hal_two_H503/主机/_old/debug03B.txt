@@ -1,0 +1,71 @@
+
+
+
+typedef struct
+{
+  uint32_t *pBuffer;   
+  uint32_t  Size;     
+
+} I3C_ControlTypeDef;
+
+
+typedef struct
+{
+  uint8_t   *pBuffer;   
+  uint32_t  Size;       
+
+} I3C_DataTypeDef;
+
+
+typedef struct
+{
+  I3C_ControlTypeDef CtrlBuf;      
+  I3C_ControlTypeDef StatusBuf;     
+  I3C_DataTypeDef    TxBuf;        
+  I3C_DataTypeDef    RxBuf;        
+
+} I3C_XferTypeDef;
+
+
+----------------
+
+
+uint8_t  aTxBuffer[] = "12345";
+
+uint32_t     aControlBuffer[15];
+
+#define DEVICE_STA_ADDR      (0xC4 >> 1)     // 62
+
+#define I3C_PRIVATE_WITH_ARB_STOP            // 0x9000 0000 
+
+
+
+typedef struct
+{
+  uint8_t            TargetAddr;  
+  I3C_DataTypeDef    TxBuf;        
+  I3C_DataTypeDef    RxBuf;       
+  uint32_t           Direction;   
+
+} I3C_PrivateTypeDef;
+
+
+I3C_PrivateTypeDef   aPrivateDescriptor[2] =
+                                          {
+                                            { 62 ,   {aTxBuffer,   5},     {NULL,       0},    0<<16  },
+                                            { 62 ,   {NULL,        0},     {aRxBuffer,  5},    1<<16   }
+                                          };
+
+
+
+
+
+
+
+
+
+
+
+
+
+

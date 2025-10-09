@@ -1,0 +1,32 @@
+#define TARGET1_DYN_ADDR        0x32
+
+
+
+#define POSITION_VAL(VAL)     (__CLZ(__RBIT(VAL)))
+
+#define __RBIT            __builtin_arm_rbit
+
+
+__STATIC_FORCEINLINE uint8_t __CLZ( value)
+ 
+  if (value == 0)   
+    return 32;
+   
+  return __builtin_clz(value);
+
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

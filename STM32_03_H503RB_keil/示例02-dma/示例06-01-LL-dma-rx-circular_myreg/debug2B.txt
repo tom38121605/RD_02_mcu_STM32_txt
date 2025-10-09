@@ -1,0 +1,376 @@
+  
+
+typedef struct
+{
+  __IO uint32_t LinkRegisters[8];
+
+} LL_DMA_LinkNodeTypeDef;
+
+LL_DMA_LinkNodeTypeDef     Node_GPDMA1_Channel0 = {0};      //有8个寄存器的值
+
+
+
+//线性
+
+00 -- CTR1
+01 -- CTR2
+02 -- CBR1
+03 -- CSAR
+04 -- CDAR
+05 -- CLLR    //已理解 （因为后面的三个寄存器 CTR3,CBR2,CLLR_2D都是用于通道6，7的。所有CLLR在线性dma里面就排在第5啦，哈哈）
+
+
+//二维
+
+00 -- CTR1
+01 -- CTR2
+02 -- CBR1
+03 -- CSAR
+04 -- CDAR
+05 -- CTR3
+06 -- CBR2
+07 -- CLLR 2D
+
+
+
+
+
+---
+
+
+
+typedef struct
+{
+  uint32_t PrescalerValue;   
+  uint32_t BaudRate;          
+  uint32_t DataWidth;      
+  uint32_t StopBits;        
+  uint32_t Parity;          
+  uint32_t TransferDirection;       
+  uint32_t HardwareFlowControl;   
+  uint32_t OverSampling;               
+
+} LL_USART_InitTypeDef;
+
+
+
+
+
+
+
+
+
+
+=======================================参考=======================================================
+
+
+
+ 
+ 
+#include "gpio.h"    //--add
+LL_GPIO_SetOutputPin(LED2_GPIO_Port, LED2_Pin);    //--led on ，？
+  
+
+
+==================================
+
+
+DMA_NodeConfTypeDef      NodeConfig= {0};
+
+UART_HandleTypeDef       huart2;
+
+
+DMA_NodeTypeDef          Node_GPDMA1_Channel0;        //有8个寄存器的值
+
+00 -- CTR1
+01 -- CTR2
+02 -- CBR1
+03 -- CSAR
+04 -- CDAR
+05 -- CTR3
+06 -- CBR2
+07 -- CLLR 2D
+
+
+DMA_QListTypeDef         List_GPDMA1_Channel0;
+
+DMA_HandleTypeDef        handle_GPDMA1_Channel0;
+
+DMA_NodeInQInfoTypeDef   node_info;
+
+
+
+==============================================
+
+
+typedef struct
+{
+   uint32_t Request;             
+   uint32_t BlkHWRequest;           
+   uint32_t Direction;              
+   uint32_t SrcInc;                 
+   uint32_t DestInc;                
+
+   uint32_t SrcDataWidth;           
+   uint32_t DestDataWidth;          
+   uint32_t Priority;               
+   uint32_t SrcBurstLength;         
+   uint32_t DestBurstLength;        
+
+   uint32_t TransferAllocatedPort;  
+   uint32_t TransferEventMode;      
+   uint32_t Mode;          
+         
+} DMA_InitTypeDef;
+
+
+typedef struct
+{
+  uint32_t                    NodeType;            
+  DMA_InitTypeDef             Init;      
+          
+  DMA_DataHandlingConfTypeDef DataHandlingConfig; 
+  DMA_TriggerConfTypeDef      TriggerConfig;       
+  DMA_RepeatBlockConfTypeDef  RepeatBlockConfig;   
+
+  uint32_t                    SrcAddress;          
+  uint32_t                    DstAddress;          
+  uint32_t                    DataSize;           
+
+} DMA_NodeConfTypeDef;
+
+DMA_NodeConfTypeDef NodeConfig= {0};
+
+
+
+------------------------
+
+typedef struct
+{
+    uint32_t cllr_offset;        
+
+    uint32_t previousnode_addr;  
+
+    uint32_t currentnode_pos;    
+
+    uint32_t currentnode_addr;   
+
+    uint32_t nextnode_addr;      
+
+} DMA_NodeInQInfoTypeDef;
+
+
+
+-------------------------
+ 
+typedef struct
+{
+
+  uint32_t LinkRegisters[8];  
+
+  uint32_t NodeInfo;                     //待理解  
+
+} DMA_NodeTypeDef;                                       
+
+DMA_NodeTypeDef     Node_GPDMA1_Channel0;
+
+
+
+
+
+
+//线性
+#define NODE_CTR1_DEFAULT_OFFSET        (0x0000U)  
+#define NODE_CTR2_DEFAULT_OFFSET        (0x0001U)  
+#define NODE_CBR1_DEFAULT_OFFSET        (0x0002U)  
+#define NODE_CSAR_DEFAULT_OFFSET        (0x0003U)  
+#define NODE_CDAR_DEFAULT_OFFSET        (0x0004U)  
+
+#define NODE_CLLR_LINEAR_DEFAULT_OFFSET (0x0005U)    //已理解 （因为后面的三个寄存器 CTR3,CBR2,CLLR_2D都是用于通道6，7的。所有CLLR在线性dma里面就排在第5啦，哈哈）
+
+//二维
+
+#define NODE_CTR1_DEFAULT_OFFSET        (0x0000U)  
+#define NODE_CTR2_DEFAULT_OFFSET        (0x0001U)  
+#define NODE_CBR1_DEFAULT_OFFSET        (0x0002U)  
+#define NODE_CSAR_DEFAULT_OFFSET        (0x0003U)  
+#define NODE_CDAR_DEFAULT_OFFSET        (0x0004U)  
+
+#define NODE_CTR3_DEFAULT_OFFSET        (0x0005U)  
+#define NODE_CBR2_DEFAULT_OFFSET        (0x0006U)  
+#define NODE_CLLR_2D_DEFAULT_OFFSET     (0x0007U)  
+
+
+
+
+
+typedef struct __DMA_QListTypeDef
+{
+
+  DMA_NodeTypeDef                *Head;          
+  DMA_NodeTypeDef                *FirstCircularNode;  
+
+  uint32_t                       NodeNumber;          
+  __IO HAL_DMA_QStateTypeDef     State;     
+          
+  __IO uint32_t                  ErrorCode;          
+  __IO uint32_t                  Type;  
+              
+} DMA_QListTypeDef;                                       //List_GPDMA1_Channel0
+
+DMA_QListTypeDef         List_GPDMA1_Channel0;
+
+
+typedef enum
+{
+  HAL_DMA_QUEUE_STATE_RESET = 0x00, 
+  HAL_DMA_QUEUE_STATE_READY = 0x01,  
+  HAL_DMA_QUEUE_STATE_BUSY  = 0x02   
+
+} HAL_DMA_QStateTypeDef;
+
+
+-----------
+
+
+typedef struct
+{
+  uint32_t Request;                
+  uint32_t BlkHWRequest;           
+  uint32_t Direction;              
+  uint32_t SrcInc;                 
+  uint32_t DestInc;                
+
+  uint32_t SrcDataWidth;           
+  uint32_t DestDataWidth;          
+  uint32_t Priority;               
+  uint32_t SrcBurstLength;         
+  uint32_t DestBurstLength;        
+
+  uint32_t TransferAllocatedPort;  
+  uint32_t TransferEventMode;      
+  uint32_t Mode;                   
+
+} DMA_InitTypeDef;
+
+
+typedef struct __DMA_HandleTypeDef
+{
+  DMA_Channel_TypeDef       *Instance;                             
+  DMA_InitTypeDef           Init;                                  
+  DMA_InitLinkedListTypeDef InitLinkedList;                         
+  HAL_LockTypeDef           Lock;                                   
+  uint32_t                  Mode;                                   
+
+  __IO HAL_DMA_StateTypeDef State;                                  
+  __IO uint32_t             ErrorCode;                             
+  void                      *Parent;                                
+
+  void (* XferCpltCallback)(struct __DMA_HandleTypeDef *hdma);      
+  void (* XferHalfCpltCallback)(struct __DMA_HandleTypeDef *hdma);  
+  void (* XferErrorCallback)(struct __DMA_HandleTypeDef *hdma);    
+  void (* XferAbortCallback)(struct __DMA_HandleTypeDef *hdma);     
+  void (* XferSuspendCallback)(struct __DMA_HandleTypeDef *hdma);   
+
+  struct __DMA_QListTypeDef  *LinkedListQueue;                      
+
+} DMA_HandleTypeDef;                                                 
+
+DMA_HandleTypeDef        handle_GPDMA1_Channel0;
+
+
+
+-----------
+
+typedef struct __UART_HandleTypeDef
+{
+   USART_TypeDef                 *Instance;                
+   UART_InitTypeDef              Init;                     
+   UART_AdvFeatureInitTypeDef    AdvancedInit;           
+   const uint8_t                 *pTxBuffPtr;              
+   uint16_t                      TxXferSize;                
+
+   __IO uint16_t            TxXferCount;          
+   uint8_t                  *pRxBuffPtr;         
+   uint16_t                 RxXferSize;          
+   __IO uint16_t            RxXferCount;         
+   uint16_t                 Mask;                  
+
+   uint32_t                            FifoMode;        
+   uint16_t                            NbRxDataToProcess;  
+   uint16_t                            NbTxDataToProcess;   
+   __IO HAL_UART_RxTypeTypeDef         ReceptionType;                             //here
+   __IO HAL_UART_RxEventTypeTypeDef    RxEventType;                               //here 
+
+   void (*RxISR)                       (struct __UART_HandleTypeDef *huart);  
+   void (*TxISR)                       (struct __UART_HandleTypeDef *huart);  
+   DMA_HandleTypeDef                   *hdmatx;                
+   DMA_HandleTypeDef                   *hdmarx;                 
+   HAL_LockTypeDef                     Lock;                    
+
+   __IO HAL_UART_StateTypeDef      gState;             
+   __IO HAL_UART_StateTypeDef      RxState;             
+   __IO uint32_t                   ErrorCode;         
+
+} UART_HandleTypeDef;                                                               
+
+
+UART_HandleTypeDef       huart2;
+
+
+
+
+
+============================================
+
+#define LL_DMA_CHANNEL_0      0
+
+#define BUFFER_SIZE           20
+
+uint8_t aRXBufferUser[RX_BUFFER_SIZE];
+
+
+uint8_t aRXBufferA[RX_BUFFER_SIZE];
+uint8_t aRXBufferB[RX_BUFFER_SIZE];
+
+
+
+
+
+
+
+
+
+
+
+
+
+================================
+
+HAL_UARTEx_ReceiveToIdle_DMA
+
+aRXBufferUser
+
+HAL_UARTEx_RxEventCallback
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

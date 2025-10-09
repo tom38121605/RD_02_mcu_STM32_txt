@@ -1,0 +1,287 @@
+
+说明1：原来循环模式和非循环模式的区别，就是dma完成后，是否把两边buf的指针移到起始位的区别，并且循环模式自动启动dma的下一次传输。而非循环模式需手动启动dma的下一次传输。
+
+说明2：半完成中断，是在自动循环模式时（circular mode），为了避免自动循环时回滚覆盖已接收的数据
+
+说明3：对于 DMA 传输 9 个字节的情况，通常传输 4 个字节时会触发半完成中断。             （具体需根据不同单片机和使用情况验证）
+
+说明4：SINC=0是指大地址的递增搬运，sdec=0，是指大地址内部小地址按顺序搬运
+
+
+疑问1： 这个例子是如何测试，是单步调试看变量吗？
+
+
+
+
+======================================= dma init ========================================
+
+flow:
+
+     如下 （略 ）   //-- easy
+ 
+
+
+---------------------------------------------------
+
+main
+
+      //使能 GPDMA1的clk，设置GPDMA1的优先级和使能irq
+        把GPDMA1的配置参数赋值到结构体DMA_InitStruct，初始化GPDMA1
+      MX_GPDMA1_Init();
+
+
+      //设置dma的源地址和目标地址
+      //LL_DMA_ConfigAddresses( GPDMA1,  LL_DMA_CHANNEL_0, &sfrom, &sdest);   //0
+         C0SAR = sfrom;
+         C0DAR = sdest;
+
+
+      //设置dma的传输长度
+      //LL_DMA_SetBlkDataLength( GPDMA1,  LL_DMA_CHANNEL_0,  32 * 4  );
+         C0BR1.15-0 = 32 * 4;                                     //非alternate （alternate用于通道6，7）
+
+
+      //使能传输完成中断
+      //LL_DMA_EnableIT_TC(GPDMA1, LL_DMA_CHANNEL_0);
+          CCR.8=1 
+
+
+      //使能传输err中断
+      //LL_DMA_EnableIT_DTE(GPDMA1, LL_DMA_CHANNEL_0);
+          CCR.10=1 
+
+
+      //打开dma的传输开关
+      //LL_DMA_EnableChannel(GPDMA1, LL_DMA_CHANNEL_0);
+          CCR.0=1 
+
+
+
+------------
+
+功能：使能 GPDMA1的clk，设置GPDMA1的优先级和使能irq
+      把GPDMA1的配置参数赋值到结构体DMA_InitStruct，初始化GPDMA1
+
+MX_GPDMA1_Init( )
+ 
+
+   LL_DMA_InitTypeDef DMA_InitStruct = {0};
+
+   //使能 GPDMA1的clk
+   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPDMA1);
+
+   //设置GPDMA1的优先级和使能irq
+   NVIC_SetPriority(GPDMA1_Channel0_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+   NVIC_EnableIRQ(GPDMA1_Channel0_IRQn);
+
+
+   // 1. 设置源地址和目标地址（先设为0，后面会改）
+   DMA_InitStruct.SrcAddress = 0x00000000U;     // 数据从哪里来（比如数组A）
+   DMA_InitStruct.DestAddress = 0x00000000U;    // 数据搬到哪里去（比如数组B）
+
+   // 2. 设置搬运方向：从内存到内存（不是从外设到内存）
+   DMA_InitStruct.Direction = LL_DMA_DIRECTION_MEMORY_TO_MEMORY;
+
+   // 3. 设置搬运方式：一次只搬1批数据（不是连续搬多批）
+   DMA_InitStruct.BlkHWRequest = LL_DMA_HWREQUEST_SINGLEBURST;
+
+   // 4. 设置数据对齐方式：零填充（比如数据不够4字节时，后面补0）
+   DMA_InitStruct.DataAlignment = LL_DMA_DATA_ALIGN_ZEROPADD;
+
+   // 5. 设置每次搬运的数据量：每次搬1个“字”（Word，通常是4字节）
+   DMA_InitStruct.SrcBurstLength = 1;
+   DMA_InitStruct.DestBurstLength = 1;
+   DMA_InitStruct.SrcDataWidth = LL_DMA_SRC_DATAWIDTH_WORD;        //这个好像有点特别，一般式1个字节，这里是4个字节
+   DMA_InitStruct.DestDataWidth = LL_DMA_DEST_DATAWIDTH_WORD;      //这个好像有点特别，一般式1个字节，这里是4个字节
+
+
+   // 6. 设置地址递增模式：每搬完1次，源地址和目标地址都往后移1个“字”
+   DMA_InitStruct.SrcIncMode = LL_DMA_SRC_INCREMENT;
+   DMA_InitStruct.DestIncMode = LL_DMA_DEST_INCREMENT;
+
+   // 7. 设置优先级：低优先级（有其他更紧急的任务时先让道）
+   DMA_InitStruct.Priority = LL_DMA_LOW_PRIORITY_HIGH_WEIGHT;
+
+   // 8. 设置要搬运的数据总长度（先设为0，后面会改）
+   DMA_InitStruct.BlkDataLength = 0x00000000U;
+
+   // 9. 设置搬运模式：普通模式（搬完一次就停止，不是循环搬）
+   DMA_InitStruct.Mode = LL_DMA_NORMAL;
+
+   // 10. 设置触发模式：整批数据搬完后触发事件
+   DMA_InitStruct.TriggerMode = LL_DMA_TRIGM_BLK_TRANSFER;
+
+
+   // 11. 设置触发极性：不使用触发信号（数据来了就搬）
+   DMA_InitStruct.TriggerPolarity = LL_DMA_TRIG_POLARITY_MASKED;
+
+   // 12. 设置触发选择（先设为0，后面会改）
+   DMA_InitStruct.TriggerSelection = 0x00000000U;
+
+   // 13. 设置传输完成事件模式：整批数据搬完后才通知
+   DMA_InitStruct.TransferEventMode = LL_DMA_TCEM_BLK_TRANSFER;
+
+   // 14. 设置使用的通道端口：都使用端口1
+   DMA_InitStruct.SrcAllocatedPort = LL_DMA_SRC_ALLOCATED_PORT1;
+   DMA_InitStruct.DestAllocatedPort = LL_DMA_DEST_ALLOCATED_PORT1;
+   DMA_InitStruct.LinkAllocatedPort = LL_DMA_LINK_ALLOCATED_PORT1;
+
+
+   // 15. 设置链表执行模式：一次性执行完所有搬运任务
+   DMA_InitStruct.LinkStepMode = LL_DMA_LSM_FULL_EXECUTION;
+
+   // 16. 设置链表基地址和偏移量（先设为0，后面会改）
+   DMA_InitStruct.LinkedListBaseAddr = 0x00000000;        //待理解
+   DMA_InitStruct.LinkedListAddrOffset = 0x00000000;      //待理解
+
+
+   //初始化DMA1通道0：把上面的配置应用到GPDMA1的通道0
+   LL_DMA_Init(GPDMA1, LL_DMA_CHANNEL_0, &DMA_InitStruct);
+
+
+
+--------
+
+功能：初始化DMA1通道0
+
+参数：GPDMA1, LL_DMA_CHANNEL_0, DMA_InitStruct
+LL_DMA_Init(  *DMAx,  Channel,  *DMA_InitStruct)
+ 
+
+  //LL_DMA_SetLinkedListBaseAddr(DMAx, Channel, DMA_InitStruct->LinkedListBaseAddr);
+     C0LBAR.31-0 = 00000000 & ffff0000;                                                //设置基准地址为 0000 0000 （后四位必须为0）
+
+
+  //LL_DMA_ConfigControl( DMAx, Channel, DMA_InitStruct->Priority |  DMA_InitStruct->LinkAllocatedPort  |  DMA_InitStruct->LinkStepMode );
+      C0CR = 2 <<22 |  1<<17  |   0<<16               //优先级为低级H, 链接分配端口为端口1（待理解），一次性执行完所有搬运任务
+
+
+  //LL_DMA_ConfigTransfer(DMAx, Channel,  
+      C0TR1   =         DMA_InitStruct->DestAllocatedPort         //  1<<30 , 目标分配端口为端口1                               //待理解
+                        DMA_InitStruct->DestHWordExchange         //  0<<27 , 目标word的前后两半位置不交换
+                        DMA_InitStruct->DestByteExchange          //  0<<26 , 目标相邻的两个字节位置不交换  
+                        DMA_InitStruct->DestIncMode               //  1<<19 ，目标地址递增模式：每搬完1次往后移1个“字”
+                        DMA_InitStruct->DestDataWidth             //  2<<16 , 目标数据，一次搬运4个字节
+
+                        DMA_InitStruct->SrcAllocatedPort          //  1<<14 , 源分配端口为端口1                                     //待理解
+                        DMA_InitStruct->SrcByteExchange           //  0<<13 ，源相邻的两个字节位置不交换
+                        DMA_InitStruct->DataAlignment             //  0<<11 . 右对齐，用0补齐字节数
+                        DMA_InitStruct->SrcIncMode                //  1<<3  , 源地址递增模式：每搬完1次往后移1个“字”
+                        DMA_InitStruct->SrcDataWidth);            //  2<<0  , 源数据，一次搬运4个字节
+
+
+   //LL_DMA_ConfigBurstLength(DMAx, Channel,  DMA_InitStruct->SrcBurstLength, DMA_InitStruct->DestBurstLength);
+      C0TR1   =  1<<4  |  1<<20 ;     //源端突发传输长度为 1+1， 目标端突发传输长度为 1+1                             //待理解
+
+
+   //LL_DMA_ConfigChannelTransfer(DMAx, Channel,  
+      C0TR2   =                 DMA_InitStruct->TransferEventMode         //  0<<30 , 整批数据搬完后才通知      
+                               DMA_InitStruct->TriggerPolarity           //  0<<24 , 不使用触发信号（数据来了就搬）
+                               DMA_InitStruct->BlkHWRequest              //  0<<11 , 一次只搬1批数据（不是连续搬多批）          //待理解
+                               DMA_InitStruct->Mode                      //  0<<12 , 普通模式（搬完一次就停止，不是循环搬）     //待验证，待理解
+                               DMA_InitStruct->Direction);               //  1<<9  , 从内存到内存
+
+  //检查是否为mem -- mem 搬运
+  if (DMA_InitStruct->Direction != LL_DMA_DIRECTION_MEMORY_TO_MEMORY)  //no，忽略跳过
+  
+     //LL_DMA_SetPeriphRequest(DMAx, Channel, DMA_InitStruct->Request);
+        C0TR2.7-0 = 0;                                                     //adc1_dma    //待理解 
+  
+
+  //检查触发方式
+  if (DMA_InitStruct->TriggerPolarity != LL_DMA_TRIG_POLARITY_MASKED)    //no，忽略跳过
+
+     //LL_DMA_SetHWTrigger(DMAx, Channel, DMA_InitStruct->TriggerSelection);
+        C0TR2.21-16 = 0;                                                     //exit0    //待理解 
+
+     LL_DMA_SetTriggerMode(DMAx, Channel, DMA_InitStruct->TriggerMode);        
+        C0TR2.15-14 = 0;                                                     //整批数据搬完后触发事件 //或软件触发   //待理解 
+
+
+  //LL_DMA_SetBlkDataLength(DMAx, Channel, DMA_InitStruct->BlkDataLength);
+     C0BR1.15-0   =   0;         //设置要搬运的数据长度                      //C0BR1，no alternate 
+
+
+  //检查channel是否为dma1的第6，7通道（这两个通道懂得自动换行搬运多排货物）
+  if (IS_LL_DMA_2D_CHANNEL_INSTANCE(DMAx, Channel) != 0 )                   //no，忽略跳过
+  
+    //LL_DMA_SetBlkRptCount(DMAx, Channel, DMA_InitStruct->BlkRptCount);
+        C0BR1.26-16   =   0;         //自动搬运0+1次。然后自动停止                        //alternate C0BR1
+
+    //LL_DMA_ConfigBlkRptAddrUpdate(DMAx, Channel,                                        //alternate C0BR1
+        C0BR1    =                DMA_InitStruct->BlkRptSrcAddrUpdateMode      // 0<<30 , 源地址搬运方向，从0，1，2，3排货物的正序搬运
+                                  DMA_InitStruct->BlkRptDestAddrUpdateMode     // 0<<31 , 目标地址搬运方向，从0，1，2，3排货物的正序搬运
+                                  DMA_InitStruct->SrcAddrUpdateMode            // 0<<28 , 源地址搬运方向，从0，1，2，3座位货物的正序搬运（应同一排内）
+                                  DMA_InitStruct->DestAddrUpdateMode);         // 0<<29 , 目标地址搬运方向，从0，1，2，3座位货物的正序搬运（应同一排内）
+
+
+  //LL_DMA_ConfigAddresses(DMAx, Channel, DMA_InitStruct->SrcAddress, DMA_InitStruct->DestAddress);
+       C0SAR = 0;     //设置源地址  （先设为0，后面会改）
+       C0DAR = 0;     //设置目标地址（先设为0，后面会改）
+
+
+  //检查channel是否为dma1的第6，7通道（这两个通道懂得自动换行搬运多排货物）
+  if (IS_LL_DMA_2D_CHANNEL_INSTANCE(DMAx, Channel) != 0U)     //no，忽略跳过
+
+     //LL_DMA_ConfigAddrUpdateValue(DMAx, Channel, DMA_InitStruct->SrcAddrOffset, DMA_InitStruct->DestAddrOffset);
+         C0TR3.12-0  =  0;      //设置源的座位地址的额外偏移量        //待理解 
+         C0TR3.28-16 =  0;      //设置目标的座位地址的额外偏移量      //待理解 
+
+
+     //LL_DMA_ConfigBlkRptAddrUpdateValue(DMAx, Channel, DMA_InitStruct->BlkRptSrcAddrOffset, DMA_InitStruct->BlkRptDestAddrOffset);
+         C0BR2.15-0  =  0;       //设置源地址的块地址额外偏移量  （如从第1排跳到第3排）        //待理解
+         C0BR2.31-16 =  0;       //设置目标地址的块地址额外偏移量（如从第1排跳到第3排）        //待理解
+
+
+  //LL_DMA_SetLinkedListAddrOffset(DMAx, Channel, DMA_InitStruct->LinkedListAddrOffset);
+      C0LLR.15-2 =  0;      //设置链表偏移量,下一站的地址（先设为0，后面会改）              //待理解
+ 
+
+
+
+
+
+======================================= dma 中断处理 ========================================
+
+
+flow:
+
+    startup_stm32h503xx.s  --  GPDMA1_Channel0_IRQHandler 
+
+
+
+----------------------------------------------------
+
+
+GPDMA1_Channel0_IRQHandler( )
+
+  if(LL_DMA_IsActiveFlag_TC(GPDMA1, LL_DMA_CHANNEL_0) == 1)
+
+    LL_DMA_ClearFlag_TC(GPDMA1, LL_DMA_CHANNEL_0);
+
+    //接收完成处理
+    TransferComplete();
+
+  else if(LL_DMA_IsActiveFlag_DTE(GPDMA1, LL_DMA_CHANNEL_0) == 1)
+    TransferError();
+
+
+
+------------------
+
+//接收完成处理
+TransferComplete()
+ 
+  if (Buffercmp( sfrom, sdest, 32) == 1)
+  
+      LED_Blinking(LED_BLINK_ERROR); 
+  
+ 
+  LED_On();
+ 
+
+
+
+
+
+
