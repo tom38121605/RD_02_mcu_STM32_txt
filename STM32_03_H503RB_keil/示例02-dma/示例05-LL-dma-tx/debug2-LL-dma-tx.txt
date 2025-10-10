@@ -28,9 +28,14 @@
    数据流：handle_GPDMA1_Channel1->XferHalfCpltCallback  =  UART_DMATxHalfCplt;
 
 
+参考1. 时钟优先级和 irq设置的参考书籍：  
+    AIRCR  -- P103, P107       //优先级分组。__STM32开发指南-寄存器版本_V1.3_sistick_gd_ok.pdf  P103 P107（不论是抢占优先级还是子优先级，都是数值越小优先级越高）
+    NVIC->IPR[ 27 ] = 0;       //优先级和子优先级。 00-DUI0553-Cortex-M4 Devices Generic UserGuide     P219 P223 (主要看高4位)
+    NVIC->ISER[ 0] =  1 << 27; //使能irq。 00-DUI0553-Cortex-M4 Devices Generic UserGuide     P219 P220  
 
 
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ hal uart 的 dma tx的步骤 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ LL uart 的 dma tx的步骤 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
 
@@ -136,10 +141,13 @@ MX_GPDMA1_Init( )
      RCC->AHB1ENR.0=1; 
 
 
-  //设置优先级分组的值为3（第四组，没有子优先级，都是16个抢占优先级），dma1通道0的抢占优先级设为0（最高）
+  //设置优先级分组的值为3（第三组，3位抢占优先级和1位子优先级），dma1通道0的抢占优先级和子优先级都设为0（最高）
   //NVIC_SetPriority(GPDMA1_Channel0_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
 
-     AAA = NVIC_GetPriorityGrouping();         //AIRCR.10-8 = 3
+     AAA = NVIC_GetPriorityGrouping();         
+     AAA = (uint32_t)((SCB->AIRCR & SCB_AIRCR_PRIGROUP_Msk) >> SCB_AIRCR_PRIGROUP_Pos);
+     AAA = (SCB->AIRCR & (7<<8) ) >> 7;
+     AAA = AIRCR.10-8 = 0;                    //复位值为0，注意优先级分组在下面重新计算   //__STM32开发指南-寄存器版本_V1.3_sistick_gd_ok.pdf  P103 P107
 
      BBB = NVIC_EncodePriority( AAA, 0, 0);    //0
 
@@ -157,16 +165,16 @@ MX_GPDMA1_Init( )
 --------------
 
 
-//3, 0, 0
+//0, 0, 0
  NVIC_EncodePriority (  PriorityGroup,   PreemptPriority,  SubPriority)
  
-  PriorityGroupTmp =  3;
+  PriorityGroupTmp =  0;  //临时分组编号为0  （需根据临时编号计算出优先级分组）
 
-  //PreemptPriorityBits = ((7  - PriorityGroupTmp) >   4)  ?   4  :  (7  - PriorityGroupTmp);  //__NVIC_PRIO_BITS=4
-       PreemptPriorityBits =  7 - 3 =4;     //AIRCR7-4的四位都是抢占优先级 (在这里是IPR[27]的高4位)
+  //PreemptPriorityBits = ((7  - 0) >   __NVIC_PRIO_BITS)  ?   __NVIC_PRIO_BITS  :  (7  - 0);  //__NVIC_PRIO_BITS=4
+       PreemptPriorityBits =__NVIC_PRIO_BITS =4;     //查表对应优先级分组为3，ISER中前3位抢占优先级和1位子优先级  //__STM32开发指南  P107
 
   //SubPriorityBits = ((PriorityGroupTmp + __NVIC_PRIO_BITS ) < 7 ) ? 0 : (PriorityGroupTmp - 7 ) + __NVIC_PRIO_BITS;
-     SubPriorityBits = (PriorityGroupTmp - 7 ) + __NVIC_PRIO_BITS =0;   //子优先级的位数为0
+     SubPriorityBits = 0;    
 
 
    //AAA =  (  PreemptPriority &  ( (1 <<  PreemptPriorityBits ) - 1 ) ) << SubPriorityBits 
@@ -185,8 +193,7 @@ MX_GPDMA1_Init( )
 
 flow:
 
-     main -- MX_USART1_UART_Init -- HAL_UART_Init -- HLL_DMA_Init -- NVIC_SetPriority串口 -- NVIC_EnableIRQ串口 -- LL_USART_Init -- LL_USART_Enable
-
+       main -- MX_USART1_UART_Init -- LL_DMA_Init -- NVIC_SetPriority串口 -- NVIC_EnableIRQ串口 -- LL_USART_Init -- LL_USART_Enable  
 
 
 ---------------------------------------------------
@@ -328,6 +335,7 @@ MX_USART1_UART_Init( )
   //LL_USART_ConfigAsyncMode(USART1);
      CLEAR_BIT(huart->Instance->CR2, (USART_CR2_LINEN | USART_CR2_CLKEN));                   //LINEN=0 不配置主从模式，CLKEN=0 不能clk引脚
      CLEAR_BIT(huart->Instance->CR3, (USART_CR3_SCEN | USART_CR3_HDSEL | USART_CR3_IREN));   //SCEN=0 不使能智能卡模式，HDSEL=0 不使能半双工， IREN=0 不使能红外协议
+
 
 
   //------ 打开uart ------ 
@@ -473,7 +481,7 @@ LL_UART_Transmit_DMA( *dmainst, *pData, Size)
    LL_DMA_Start_IT(dmainst, (uint32_t)pData, (uint32_t)&USART1->TDR, Size);
   
 
-   //清0传输完成的中断标志      
+   //清0传输完成的uart中断标志      
    SET_BIT(USART1->ICR, USART_ICR_TCCF);
       //USART1->ICR |= 1<<6; 
 
@@ -519,8 +527,6 @@ LL_DMA_Start_IT( *dmainst, SrcAddress, DstAddress, SrcDataSize)
    //开启 dma CH0
    LL_DMA_EnableChannel(GPDMA1, LL_DMA_CHANNEL_0);   
       //GPDMA1_Channel0->CCR  |=1<<0;   
-
-
 
 
 
