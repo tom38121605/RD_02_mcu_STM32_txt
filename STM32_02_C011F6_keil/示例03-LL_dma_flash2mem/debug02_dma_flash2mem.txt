@@ -4,7 +4,7 @@
 答：    是的
 
 
-======================================= dma init ========================================
+================================== dma init ===================================
 
 flow:
 
@@ -58,7 +58,7 @@ MX_DMA_Init( )
 
   //CCR清0
   LL_DMA_SetPeriphRequest(DMA1, LL_DMA_CHANNEL_1, LL_DMAMUX_REQ_MEM2MEM);
-     CCR.15-0=0;     
+     DMAMUX_CCR.15-0=0;     
 
   //设置搬运方向：从内存到内存（不是从外设到内存）
   LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_1, LL_DMA_DIRECTION_MEMORY_TO_MEMORY);
