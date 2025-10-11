@@ -1,0 +1,57 @@
+
+
+https://community.st.com/t5/stm32-mcus-products/stm32c011-unable-to-configure-pf2-nrst-as-gpio-and-multiplex-to/m-p/662986    //用STLINK编程器和STM32CubeProgrammer修改熔丝位
+
+
+
+https://community.st.com/t5/stm32-mcus-products/stm32c011-unbale-to-configure-nrst-pin-as-gpio/m-p/643204  //在程序中修改熔丝位
+
+
+int main(void)
+{
+  /* USER CODE BEGIN 1 */
+  FLASH_OBProgramInitTypeDef OptionsBytesStruct;
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+  /* USER CODE BEGIN Init */
+  /* Configure the system clock to 48 MHz */
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
+  SystemClock_Config();
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  /* USER CODE BEGIN 2 */
+  //Check to see if the option byte is already properly configured and only updates it if needed
+  HAL_FLASHEx_OBGetConfig(&OptionsBytesStruct);
+  if((OptionsBytesStruct.USERConfig & OB_USER_NRST_MODE )!= OB_RESET_MODE_GPIO)
+  {
+        /* Unlock the Flash to enable the flash control register access *************/
+        HAL_FLASH_Unlock();
+        /* Unlock the Option Byte *************/
+        HAL_FLASH_OB_Unlock();
+        OptionsBytesStruct.OptionType = OPTIONBYTE_USER ; //Configure USER type
+        OptionsBytesStruct.USERType = OB_USER_NRST_MODE;
+        OptionsBytesStruct.USERConfig = OB_RESET_MODE_GPIO;//Set the NRST pin to behave only as GPIO
+        HAL_FLASHEx_OBProgram(&OptionsBytesStruct);
+        //Option byte update sequence
+        SET_BIT(FLASH->CR, FLASH_CR_OPTSTRT);
+        while((FLASH->SR & FLASH_SR_BSY1) != 0)
+        {
+             NVIC_SystemReset();//MCU will reset to perform the option byte update
+        }
+  }
+
+
+
+
+
+
+
+
