@@ -22,8 +22,8 @@ flow:
 
       //设置dma的源地址和目标地址
       //LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1, &sfrom, &sdest, 1<<14);
-         CMAR = sfrom;
-         CPAR = sdest;
+         CPAR = sfrom;
+         CMAR = sdest;
 
       //设置dma的传输长度
       //LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1, 32 );
