@@ -1,9 +1,6 @@
 
-
+下面两个网页，已下载到“ E:\GIT-REPO\RD_02_mcu_STM32_datasheet\C011-C031\PF2引脚设置为普通IO口”
 https://community.st.com/t5/stm32-mcus-products/stm32c011-unable-to-configure-pf2-nrst-as-gpio-and-multiplex-to/m-p/662986    //用STLINK编程器和STM32CubeProgrammer修改熔丝位
-
-
-
 https://community.st.com/t5/stm32-mcus-products/stm32c011-unbale-to-configure-nrst-pin-as-gpio/m-p/643204  //在程序中修改熔丝位
 
 
