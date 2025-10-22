@@ -1,4 +1,4 @@
-
+﻿
 参考：debug2-dma-uartrx.txt
 
 
@@ -123,7 +123,8 @@ flow:
 main
 
       //使能dma1 时钟clock，
-        设置优先级分组的值为3（第四组，没有子优先级，都是16个抢占优先级），dma1通道0的抢占优先级设为0（最高），
+        设置H503的优先级分组的值为3（第四组，3位抢占优先级和1位子优先级） //默认值
+        设置dma1通道0的抢占优先级和子优先级都设为0（最高）
         使能dma1的通道0的irq中断 
       MX_GPDMA1_Init();
 
@@ -131,8 +132,8 @@ main
 -----------------------------------
 
 功能：使能dma1 时钟clock，
-      设置优先级分组的值为3（第四组，没有子优先级，都是16个抢占优先级），dma1通道0和通道的抢占优先级设为0（最高），
-      使能dma1的通道0的irq中断 
+       设置H503的优先级分组的值为3（第四组，3位抢占优先级和1位子优先级） //默认值
+       设置dma1通道0的抢占优先级和子优先级都设为0（最高）
 
 MX_GPDMA1_Init( )
 
@@ -141,8 +142,9 @@ MX_GPDMA1_Init( )
      RCC->AHB1ENR.0=1; 
 
 
-  //设置优先级分组的值为3（第三组，3位抢占优先级和1位子优先级），dma1通道0的抢占优先级和子优先级都设为0（最高）
-  //NVIC_SetPriority(GPDMA1_Channel0_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+  // 设置H503的优先级分组的值为3（第四组，3位抢占优先级和1位子优先级） //默认值
+     设置dma1通道0的抢占优先级和子优先级都设为0（最高）
+  NVIC_SetPriority(GPDMA1_Channel0_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
 
      AAA = NVIC_GetPriorityGrouping();         
      AAA = (uint32_t)((SCB->AIRCR & SCB_AIRCR_PRIGROUP_Msk) >> SCB_AIRCR_PRIGROUP_Pos);
@@ -152,7 +154,7 @@ MX_GPDMA1_Init( )
      BBB = NVIC_EncodePriority( AAA, 0, 0);    //0
 
      //NVIC_SetPriority(GPDMA1_Channel0_IRQn, BBB );
-        NVIC->IPR[27] = 0<<4;  //IPR[27].7-4=0000             //高4位都是抢占优先级，一共有16个抢占优先级，0是最高的
+        NVIC->IPR[27] = 0<<4;  //IPR[27].7-5, 4=000, 0             //高4位中，前3位bit7-5抢占优先级和1位bit4子优先级，0是最高的
 
 
   //使能dma1的通道0的irq中断 
@@ -164,12 +166,16 @@ MX_GPDMA1_Init( )
 
 --------------
 
+说明1：分组值的取得和计算：取得分组寄存器AIRCR.10-8的值为0(在STM32H503中，AIRCR.10-8的值为0相当于值为4)
+          值为4查表对应优先级分组为3，ISER中前3位抢占优先级和1位子优先级  //__STM32开发指南  P107
 
-//0, 0, 0
- NVIC_EncodePriority (  PriorityGroup,   PreemptPriority,  SubPriority)
+//AAA=0, 0, 0
+NVIC_EncodePriority (  PriorityGroup,   PreemptPriority,  SubPriority)
  
+  //取得默认的临时分组值为0
   PriorityGroupTmp =  0;  //临时分组编号为0  （需根据临时编号计算出优先级分组）
 
+  //根据临时分组值0，计算得H503的分组值为4 (查表对应优先级分组为3，ISER中前3位抢占优先级和1位子优先级)
   //PreemptPriorityBits = ((7  - 0) >   __NVIC_PRIO_BITS)  ?   __NVIC_PRIO_BITS  :  (7  - 0);  //__NVIC_PRIO_BITS=4
        PreemptPriorityBits =__NVIC_PRIO_BITS =4;     //查表对应优先级分组为3，ISER中前3位抢占优先级和1位子优先级  //__STM32开发指南  P107
 
