@@ -2,7 +2,24 @@
 
 
 疑问1： 如何切换成另一个adc通道测值，如adc3
+答：    用LL_ADC_REG_SetSequencerRanks切换adc通道
 
+    LL_ADC_REG_SetSequencerRanks(ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_0);    
+    ConversionStartPoll_ADC_GrpRegular();
+    //LL_mDelay(1);
+    
+    uhADCxConvertedData = LL_ADC_REG_ReadConversionData32(ADC1);                                                  
+    uhADCxConvertedData_Voltage_mVolt = __LL_ADC_CALC_DATA_TO_VOLTAGE(VDDA_APPLI, uhADCxConvertedData, LL_ADC_RESOLUTION_12B);
+    sprintf(str1,"adc0: %d %d  \r\n",uhADCxConvertedData,uhADCxConvertedData_Voltage_mVolt );
+    iputs1(str1);
+      
+    LL_ADC_REG_SetSequencerRanks(ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_1);  
+    ConversionStartPoll_ADC_GrpRegular();
+      
+    uhADCxConvertedData = LL_ADC_REG_ReadConversionData32(ADC1);                                                  
+    uhADCxConvertedData_Voltage_mVolt = __LL_ADC_CALC_DATA_TO_VOLTAGE(VDDA_APPLI, uhADCxConvertedData, LL_ADC_RESOLUTION_12B);
+    sprintf(str1,"adc1: %d %d  \r\n",uhADCxConvertedData,uhADCxConvertedData_Voltage_mVolt );
+    iputs1(str1);
 
 
 
