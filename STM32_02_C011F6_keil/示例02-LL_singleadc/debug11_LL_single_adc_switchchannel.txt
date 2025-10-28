@@ -105,7 +105,7 @@ MX_ADC1_Init( )
       LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
  
-      //adc参数结构体赋值
+      //初始化adc参数，CFGR1.4-3,5,15=00,0,0， 12位精度，右对齐，无auto-off等； CFGR2.31-30=10，4分频 
       ADC_InitStruct.Clock = LL_ADC_CLOCK_SYNC_PCLK_DIV4;       //CFGR2.31-30=10，4分频 
       ADC_InitStruct.Resolution = LL_ADC_RESOLUTION_12B;        //CFGR1.4-3=00，12位精度
       ADC_InitStruct.DataAlignment = LL_ADC_DATA_ALIGN_RIGHT;   //CFGR1.5=0，右对齐
@@ -245,8 +245,7 @@ LL_ADC_REG_SetSequencerRanks( *ADCx,   Rank,  Channel)
 //CR.28=1 使能adc内部稳压器；CR.31=1 开启adc的校准；CR.0=1 使能adc，等待至ISR.0=1 adc已准备好采样
 ADC_Activate( )
  
-      __IO uint32_t wait_loop_index = 0;
-      __IO uint32_t backup_setting_adc_dma_transfer = 0; 
+      __IO uint32_t idmaback = 0; 
  
       if (LL_ADC_IsEnabled(ADC1) == 0)     //如 CR.0=0, 则ADC尚未启动则如下操作
      
@@ -254,12 +253,37 @@ ADC_Activate( )
             //LL_ADC_EnableInternalRegulator(ADC1);  //重复
                  MODIFY_REG( ADCx->CR,  ADC_CR_BITS_PROPERTY_RS,  ADC_CR_ADVREGEN );  //CR.31,4,2,1,0=0000(这5位写0无意义，可省去), CR.28=1，使能adc内部稳压器
   
+            //延时等待内部稳压器稳定
+            wait_loop_index = ((LL_ADC_DELAY_INTERNAL_REGUL_STAB_US * (SystemCoreClock / (100000 * 2))) / 10);
+            while(wait_loop_index != 0)
+              wait_loop_index--;
+  
+
+            //下面两句是dma相关 （可忽略）
+            //idmaback = LL_ADC_REG_GetDMATransfer(ADC1);
+              idmaback = CFGR1.1-0;
+
+            //LL_ADC_REG_SetDMATransfer(ADC1, LL_ADC_REG_DMA_TRANSFER_NONE);
+              CFGR1.1-0=00;
+
+ 
             //CR.31=1, 开启adc的校准
             //LL_ADC_StartCalibration(ADC1); 
                  MODIFY_REG(ADCx->CR, ADC_CR_BITS_PROPERTY_RS,  ADC_CR_ADCAL);      //CR.31,4,2,1,0=0000； CR.31=1, 启动adc校准
 
             //等待CR.31=0, 完成adc校准 
             while (LL_ADC_IsCalibrationOnGoing(ADC1) != 0) ;   
+
+
+            //下面两小节是dma相关 （可忽略）
+            //LL_ADC_REG_SetDMATransfer(ADC1, idmaback);
+              CFGR1.1-0=idmaback;
+
+            //等待dma设置稳定
+            wait_loop_index = (ADC_DELAY_CALIB_ENABLE_CPU_CYCLES >> 1);
+            while(wait_loop_index != 0)    
+              wait_loop_index--;
+    
 
             //CR.0=1, 使能adc
             //LL_ADC_Enable(ADC1); 
