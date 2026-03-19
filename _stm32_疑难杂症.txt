@@ -1,5 +1,6 @@
 
 1. 串口打印时，前面会多打印一个字符FE   （波特率1M）    //STM32C011F6U6TR
+
 分析1： 应该是串口缓冲区里面预存了一个字符在里面
 分析2： 如果把波特率修改成115200，则无此问题
 分析3： 在GS385_TXRX中，同样是波特率1M，却无此问题  （而且两个gpio设置完全相同，very high，no pull, fast enable）
@@ -14,6 +15,11 @@
       /* USER CODE END SysInit */
 
 
+
+2. PC15做tim3的ch3的pwm输出时，mx单独生成工程是有波形ok。但直接在adcsensor工程中添加pc15的pwm功能则无波形err    //STM32C011F6U6TR
+
+解决1： 在keil的魔法棒  --  debug选项卡  -- 右边setting  -- flash download  -- 勾选 “reset and run”
+解决2： 重新拔插一下电源
 
 
 
