@@ -13,7 +13,7 @@
    初始化adc参数
    设置CHSELR的4个bit表示一个通道，码农可编辑通道
    CR.28=1，使能adc内部稳压器
-   CHSELR.4-0 = 4 , 选择第4通道  
+   CHSELR.3-0 = 4 , 选择第4通道  
    SMPR.12=0,  ADC4采用SMP1中的79.5cycles数
 
    CR.31=1, 开启adc的校准；
