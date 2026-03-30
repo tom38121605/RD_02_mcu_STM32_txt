@@ -109,10 +109,10 @@ MX_ADC1_Init( )
       ADC_InitStruct.Clock = LL_ADC_CLOCK_SYNC_PCLK_DIV4;       //CFGR2.31-30=10，4分频 
       ADC_InitStruct.Resolution = LL_ADC_RESOLUTION_12B;        //CFGR1.4-3=00，12位精度
       ADC_InitStruct.DataAlignment = LL_ADC_DATA_ALIGN_RIGHT;   //CFGR1.5=0，右对齐
-      ADC_InitStruct.LowPowerMode = LL_ADC_LP_MODE_NONE;        //CFGR1.15-14=00，关闭auto off，关闭wait  （最省电）
+      ADC_InitStruct.LowPowerMode = LL_ADC_LP_MODE_NONE;        //CFGR1.15,14=0,0，关闭auto off，关闭wait  （最省电）
       LL_ADC_Init(ADC1, &ADC_InitStruct); //配置CFGR1, 配置CFGR2
 
-      //CFGR1.21=1, 另一个寄存器CHSELR的4个bit表示一个通道，8个通道可一次性自动依次转换；（半理解）  
+      //CFGR1.21=1, 另一个寄存器CHSELR的4个bit表示一个通道，可自定义扫描的通道顺序 （比较方便）  
       LL_ADC_REG_SetSequencerConfigurable(ADC1, LL_ADC_REG_SEQ_CONFIGURABLE);
 
        //等待ISR.13=1, 上面的通道配置CFGR1已完成

@@ -15,11 +15,16 @@
       /* USER CODE END SysInit */
 
 
-
 2. PC15做tim3的ch3的pwm输出时，mx单独生成工程是有波形ok。但直接在adcsensor工程中添加pc15的pwm功能则无波形err    //STM32C011F6U6TR
 
 解决1： 在keil的魔法棒  --  debug选项卡  -- 右边setting  -- flash download  -- 勾选 “reset and run”
 解决2： 重新拔插一下电源
+
+
+3. 在c011的一个工程里，全文件搜索LL_RCC_ADC_CLKSOURCE_SYSCLK，不能搜到。而在另一个工程里面却可以搜索到
+答： 先完全编译，然后再搜索，即ok
+
+
 
 
 
