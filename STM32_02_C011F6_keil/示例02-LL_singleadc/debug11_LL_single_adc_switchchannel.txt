@@ -289,7 +289,7 @@ ADC_Activate( )
             //LL_ADC_Enable(ADC1); 
                  MODIFY_REG(ADCx->CR,  ADC_CR_BITS_PROPERTY_RS,  ADC_CR_ADEN);
 
-            //等待ISR.0=1,  adc已准备好采样
+            //等待ISR.0=1(adc已准备好采样)
             while (LL_ADC_IsActiveFlag_ADRDY(ADC1) == 0); 
 
 

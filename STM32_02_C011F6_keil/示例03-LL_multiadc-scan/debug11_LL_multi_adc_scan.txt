@@ -32,7 +32,7 @@ main
        IOPSMENR.0=1，使能PORTA的时钟
        初始化adc引脚PA0，PA1
        初始化adc参数，CFGR1.4-3,5,15=00,0,0， 12位精度，右对齐，无auto-off等； CFGR2.31-30=01，2分频 
-       CFGR1.21=1, 另一个寄存器CHSELR的4个bit表示一个通道，8个通道可一次性自动依次转换，等待ISR.13=1, 上面的通道配置CFGR1已完成
+       CFGR1.21=1, 另一个寄存器CHSELR的4个bit表示一个通道，可自定义设置adc扫描的通道号的扫描顺序，等待ISR.13=1, 上面的通道配置CFGR1已完成
 
        使用software转换,使用通道SQ1-SQ2，不使能"不连续模式",单次触发模式, 不使能dma，adc保留旧数据
        CFGR2.0=0 , 不使能过采样
@@ -61,7 +61,7 @@ main
        IOPSMENR.0=1，使能PORTA的时钟
        初始化adc引脚PA0，PA1
        初始化adc参数，CFGR1.4-3,5,15=00,0,0， 12位精度，右对齐，无auto-off等； CFGR2.31-30=01，2分频 
-       CFGR1.21=1, 另一个寄存器CHSELR的4个bit表示一个通道，8个通道可一次性自动依次转换，等待ISR.13=1, 上面的通道配置CFGR1已完成
+       CFGR1.21=1, 另一个寄存器CHSELR的4个bit表示一个通道，可自定义设置adc扫描的通道号的扫描顺序，等待ISR.13=1, 上面的通道配置CFGR1已完成
 
        使用software转换,使用通道SQ1-SQ2，不使能"不连续模式",单次触发模式, 不使能dma，adc保留旧数据
        CFGR2.0=0 , 不使能过采样
@@ -109,10 +109,10 @@ MX_ADC1_Init( )
     LL_ADC_Init(ADC1, &ADC_InitStruct);
 
 
-    //CFGR1.21=1, 另一个寄存器CHSELR的4个bit表示一个通道，8个通道可一次性自动依次转换；
+    //CFGR1.21=1, 另一个寄存器CHSELR的4个bit表示一个通道，可自定义设置adc扫描的通道号的扫描顺序；
     LL_ADC_REG_SetSequencerConfigurable(ADC1, LL_ADC_REG_SEQ_CONFIGURABLE);
 
-     //等待ISR.13=1, 上面的通道配置CFGR1已完成
+     //等待ISR.13=1, 上面的配置CFGR1已完成
      while (LL_ADC_IsActiveFlag_CCRDY(ADC1) == 0);
 
      //清 ISR.13=0
