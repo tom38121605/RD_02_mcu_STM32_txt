@@ -108,9 +108,11 @@
 
 ---- HAL_DMA_IRQHandler ----TC中断处理 ------
 
+50. 判断dma ch1的TC中断标志 
+      DMA1->ISR == 1
+
 51. dma ch1清0 TC中断标志 
     DMA1->IFCR.1=1
-
 
 ---- HAL_DMA_IRQHandler ----ERR中断处理 ------
 
@@ -428,7 +430,7 @@ flow：
 DMA1_Channel1_IRQHandler( )
 
   //TC 
-  if(READ_BIT(DMA1->ISR, 1<<1)) //有dma的tc中断進来
+  if(READ_BIT(, 1<<1)) //有dma的tc中断進来
  
      SET_BIT(DMA1->IFCR, 1<<1 );    清 dma的tc中断
 
