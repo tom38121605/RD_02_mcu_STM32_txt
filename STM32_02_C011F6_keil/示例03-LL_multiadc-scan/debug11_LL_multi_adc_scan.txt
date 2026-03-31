@@ -120,7 +120,7 @@ MX_ADC1_Init( )
 
     //使用software转换,使用通道SQ1-SQ2，不使能"不连续模式",单次触发模式, 不使能dma，adc保留旧数据
     ADC_REG_InitStruct.TriggerSource = LL_ADC_REG_TRIG_SOFTWARE;              // CFGR1.11-10=00, 使用software转换
-    ADC_REG_InitStruct.SequencerLength = LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS;   // CHSELR.11-8=f, 把SQ3设置为f，这里的f相当于结束符，只用前面SQ1,SQ2两个通道，后面SQ3-SQ8都禁用
+    ADC_REG_InitStruct.SequencerLength = LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS;   // CHSELR.11-8=f, 把SQ3设置为f(暗藏设置为扫描模式)，这里的f相当于结束符，只用前面SQ1,SQ2两个通道，后面SQ3-SQ8都禁用
     ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;     // CFGR1.16=0, 不使能"不连续模式"  (如使能卡住连续模式, 到时单次和连续都不能触发）
     ADC_REG_InitStruct.ContinuousMode = LL_ADC_REG_CONV_SINGLE;               // CFGR1.13=0, 单次触发模式
     ADC_REG_InitStruct.DMATransfer = LL_ADC_REG_DMA_TRANSFER_NONE;            // CFGR1.0=0, 不使能dma
