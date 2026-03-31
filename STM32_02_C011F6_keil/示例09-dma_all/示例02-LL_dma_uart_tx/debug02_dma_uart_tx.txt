@@ -314,12 +314,10 @@ MX_USART1_UART_Init( )
     CR1.0=1; 
 
 
-  //只要ISR的bit21，bit22其中一个为0就一直等待，直到两个都为1
+  //只要ISR的bit21，bit22其中一个为0就一直等待，直到两个都为1( 等发送、接收都准备好)
   //while((!(LL_USART_IsActiveFlag_TEACK(USART1))) || (!(LL_USART_IsActiveFlag_REACK(USART1))))  ;
      while( !ISR.21|| !ISR.22 );
  
-
-
 
 
 
@@ -348,7 +346,6 @@ main
       LL_UART_Transmit_DMA(DMA1, aTxBuffer2, 6);  
 
 
-
 ------------------
 
 功能：把sbuf的前6个字节，通过串口发送出去
@@ -357,7 +354,7 @@ main
 LL_UART_Transmit_DMA( *dmainst,  *pData,  Size)
 {  
 
-   //使能uart的dma的发送
+   //设置dma ch1的传输数据长度，源地址，目标地址，使能ch1的tc中断，开启ch1
    LL_DMA_Start_IT(dmainst, (uint32_t)pData, (uint32_t)&USART1->TDR, Size);
   
 
@@ -380,7 +377,6 @@ LL_UART_Transmit_DMA( *dmainst,  *pData,  Size)
 
 参数：DMA1, aTxBuffer, &USART1->TDR, 6
 LL_DMA_Start_IT( *dmainst, SrcAddress, DstAddress, SrcDataSize)
-
 
    DMA_Channel_TypeDef *tmp;
    tmp = (DMA_Channel_TypeDef *)(__LL_DMA_GET_CHANNEL_INSTANCE(dmainst, LL_DMA_CHANNEL_1));  
@@ -418,13 +414,11 @@ LL_DMA_Start_IT( *dmainst, SrcAddress, DstAddress, SrcDataSize)
  
 
 
-
-
 ======================================= tx dma 中断处理 ========================================
 
 flow：
 
-   startup_stm32c011xx.s -- DMA1_Channel1_IRQHandler(
+   startup_stm32c011xx.s -- DMA1_Channel1_IRQHandler
 
 
 
@@ -434,13 +428,13 @@ flow：
 DMA1_Channel1_IRQHandler( )
 
   //TC 
-  if(READ_BIT(DMA1->ISR, 1<<1))
+  if(READ_BIT(DMA1->ISR, 1<<1)) //有dma的tc中断進来
  
-     SET_BIT(DMA1->IFCR, 1<<1 ); 
+     SET_BIT(DMA1->IFCR, 1<<1 );    清 dma的tc中断
 
      //LL_DMA_ClearFlag_GI1(DMA1);  
    
-     LL_GPIO_ResetOutputPin( LED1_GPIO_Port, LED1_Pin);   
+     LL_GPIO_ResetOutputPin( LED1_GPIO_Port, LED1_Pin);   //点亮led灯
   
   
   //ERR 
